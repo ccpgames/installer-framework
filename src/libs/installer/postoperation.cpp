@@ -44,7 +44,7 @@ bool PostOperation::performOperation()
     if (args.count() != 2) {
         setError(InvalidArguments);
         setErrorString(tr("Invalid arguments in %0: %1 arguments given, %2 expected%3.")
-            .arg(name()).arg(arguments().count()).arg(tr("2"), tr(" (EndpointUrl, Payload)")));
+            .arg(name()).arg(arguments().count()).arg(tr("2"), tr(" (Url, Payload)")));
         return false;
     }
 
@@ -72,12 +72,12 @@ bool PostOperation::performOperation()
 
 void PostOperation::onError(QNetworkReply::NetworkError code)
 {
-    qDebug() << "Failed to emit metric, error code: " << code;
+    qDebug() << "Failed to send HTTP POST, error code: " << code;
 }
 
 void PostOperation::onFinished()
 {
-    qDebug() << "Metric emitted";
+    qDebug() << "HTTP POST sent";
 }
 
 bool PostOperation::undoOperation()
