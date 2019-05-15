@@ -1,6 +1,6 @@
 /**************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Installer Framework.
@@ -34,7 +34,7 @@
 #include "updatechecker.h"
 
 #include <errors.h>
-#include <kdselfrestarter.h>
+#include <selfrestarter.h>
 #include <remoteserver.h>
 #include <utils.h>
 
@@ -44,20 +44,27 @@
 
 #include <iostream>
 
-#if defined(Q_OS_OSX)
+#if defined(Q_OS_OSX) or defined(Q_OS_UNIX)
 #  include <unistd.h>
 #  include <sys/types.h>
 #endif
 
 #define QUOTE_(x) #x
 #define QUOTE(x) QUOTE_(x)
-#define VERSION "IFW Version: \"" QUOTE(IFW_VERSION_STR) "\""
-#define BUILDDATE "Build date: " QUOTE(__DATE__)
-#define SHA "Installer Framework SHA1: \"" QUOTE(_GIT_SHA1_) "\""
+#define VERSION "IFW Version: " QUOTE(IFW_VERSION_STR) ", built with Qt " QT_VERSION_STR "."
+#define BUILDDATE "Build date: " __DATE__
+#define SHA "Installer Framework SHA1: " QUOTE(_GIT_SHA1_)
 static const char PLACEHOLDER[32] = "MY_InstallerCreateDateTime_MY";
 
 int main(int argc, char *argv[])
 {
+#if defined(Q_OS_WIN)
+    if (!qEnvironmentVariableIsSet("QT_AUTO_SCREEN_SCALE_FACTOR")
+            && !qEnvironmentVariableIsSet("QT_SCALE_FACTOR")
+            && !qEnvironmentVariableIsSet("QT_SCREEN_SCALE_FACTORS")) {
+        QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    }
+#endif
     // increase maximum numbers of file descriptors
 #if defined (Q_OS_OSX)
     QCoreApplication::setSetuidAllowed(true);
@@ -132,8 +139,24 @@ int main(int argc, char *argv[])
 
         const bool production = (mode.compare(QLatin1String(QInstaller::Protocol::ModeProduction),
             Qt::CaseInsensitive) == 0);
-        if (production)
+        if (production) {
             argumentsValid = (!key.isEmpty()) && (!socketName.isEmpty());
+#if defined(Q_OS_UNIX) && !defined(Q_OS_OSX)
+            /* In production mode detach child so that sudo waiting on us will terminate. */
+            pid_t child = fork();
+            if (child <= -1) {
+                std::cerr << "Fatal cannot fork and detach server." << std::endl;
+                return EXIT_FAILURE;
+            }
+
+            if (child != 0) {
+                return EXIT_SUCCESS;
+            }
+
+            ::setsid();
+#endif
+        }
+
 
         SDKApp<QCoreApplication> app(argc, argv);
         if (!argumentsValid) {
@@ -152,7 +175,7 @@ int main(int argc, char *argv[])
 #endif
 
         QInstaller::RemoteServer *server = new QInstaller::RemoteServer;
-        QObject::connect(server, SIGNAL(destroyed()), &app, SLOT(quit()));
+        QObject::connect(server, &QInstaller::RemoteServer::destroyed, &app, &decltype(app)::quit);
         server->init(socketName, key, (production ? QInstaller::Protocol::Mode::Production
             : QInstaller::Protocol::Mode::Debug));
 
@@ -177,17 +200,11 @@ int main(int argc, char *argv[])
 
         if (parser.isSet(QLatin1String(CommandLineOptions::Proxy))) {
             // Make sure we honor the system's proxy settings
-#if defined(Q_OS_UNIX) && !defined(Q_OS_OSX)
-            QUrl proxyUrl(QString::fromLatin1(qgetenv("http_proxy")));
-            if (proxyUrl.isValid()) {
-                QNetworkProxy proxy(QNetworkProxy::HttpProxy, proxyUrl.host(), proxyUrl.port(),
-                    proxyUrl.userName(), proxyUrl.password());
-                QNetworkProxy::setApplicationProxy(proxy);
-            }
-#else
             QNetworkProxyFactory::setUseSystemConfiguration(true);
-#endif
         }
+
+        if (parser.isSet(QLatin1String(CommandLineOptions::NoProxy)))
+            QNetworkProxyFactory::setUseSystemConfiguration(false);
 
         if (parser.isSet(QLatin1String(CommandLineOptions::CheckUpdates)))
             return UpdateChecker(argc, argv).check();
@@ -195,7 +212,7 @@ int main(int argc, char *argv[])
         if (QInstaller::isVerbose())
             std::cout << VERSION << std::endl << BUILDDATE << std::endl << SHA << std::endl;
 
-        const KDSelfRestarter restarter(argc, argv);
+        const SelfRestarter restarter(argc, argv);
         return InstallerBase(argc, argv).run();
 
     } catch (const QInstaller::Error &e) {

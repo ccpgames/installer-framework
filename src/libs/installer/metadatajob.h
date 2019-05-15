@@ -1,6 +1,6 @@
 /**************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Installer Framework.
@@ -31,7 +31,7 @@
 
 #include "downloadfiletask.h"
 #include "fileutils.h"
-#include "kdjob.h"
+#include "job.h"
 #include "repository.h"
 
 #include <QFutureWatcher>
@@ -46,7 +46,13 @@ struct Metadata
     Repository repository;
 };
 
-class INSTALLER_EXPORT MetadataJob : public KDJob
+struct ArchiveMetadata
+{
+    QString archive;
+    Metadata metaData;
+};
+
+class INSTALLER_EXPORT MetadataJob : public Job
 {
     Q_OBJECT
     Q_DISABLE_COPY(MetadataJob)
@@ -61,9 +67,11 @@ public:
     explicit MetadataJob(QObject *parent = 0);
     ~MetadataJob();
 
-    QList<Metadata> metadata() const { return m_metadata.values(); }
+    QList<Metadata> metadata() const;
     Repository repositoryForDirectory(const QString &directory) const;
     void setPackageManagerCore(PackageManagerCore *core) { m_core = core; }
+    void addCompressedPackages(bool addCompressPackage) { m_addCompressedPackages = addCompressPackage;}
+    QStringList shaMismatchPackages() const { return m_shaMissmatchPackages; }
 
 private slots:
     void doStart();
@@ -73,20 +81,37 @@ private slots:
     void unzipTaskFinished();
     void metadataTaskFinished();
     void progressChanged(int progress);
+    void setProgressTotalAmount(int maximum);
+    void unzipRepositoryTaskFinished();
+    void startXMLTask(const QList<FileTaskItem> items);
 
 private:
+    bool fetchMetaDataPackages();
+    void startUnzipRepositoryTask(const Repository &repo);
     void reset();
+    void resetCompressedFetch();
     Status parseUpdatesXml(const QList<FileTaskResult> &results);
+    QSet<Repository> getRepositories();
 
 private:
     PackageManagerCore *m_core;
 
     QList<FileTaskItem> m_packages;
     TempDirDeleter m_tempDirDeleter;
-    QHash<QString, Metadata> m_metadata;
     QFutureWatcher<FileTaskResult> m_xmlTask;
     QFutureWatcher<FileTaskResult> m_metadataTask;
     QHash<QFutureWatcher<void> *, QObject*> m_unzipTasks;
+    QHash<QFutureWatcher<void> *, QObject*> m_unzipRepositoryTasks;
+    bool m_addCompressedPackages;
+    QList<FileTaskItem> m_unzipRepositoryitems;
+    QList<FileTaskResult> m_metadataResult;
+    int m_downloadableChunkSize;
+    int m_taskNumber;
+    int m_totalTaskCount;
+    QStringList m_shaMissmatchPackages;
+    QHash<QString, ArchiveMetadata> m_fetchedArchive;
+    QHash<QString, Metadata> m_metaFromDefaultRepositories;
+    QHash<QString, Metadata> m_metaFromArchive; //for faster lookups.
 };
 
 }   // namespace QInstaller

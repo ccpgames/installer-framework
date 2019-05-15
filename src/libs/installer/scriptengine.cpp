@@ -72,10 +72,32 @@ QJSValue InstallerProxy::componentByName(const QString &componentName)
     return QJSValue();
 }
 
+QJSValue QDesktopServicesProxy::findFiles(const QString &path, const QString &pattern)
+{
+    QStringList result;
+    findRecursion(path, pattern, &result);
+
+    QJSValue scriptComponentsObject = m_engine->newArray(result.count());
+    for (int i = 0; i < result.count(); ++i) {
+        scriptComponentsObject.setProperty(i, result.at(i));
+    }
+    return scriptComponentsObject;
+}
+
+void QDesktopServicesProxy::findRecursion(const QString &path, const QString &pattern, QStringList *result)
+{
+    QDir currentDir(path);
+    const QString prefix = path + QLatin1Char('/');
+    foreach (const QString &match, currentDir.entryList(QStringList(pattern), QDir::Files | QDir::NoSymLinks))
+        result->append(prefix + match);
+    foreach (const QString &dir, currentDir.entryList(QDir::Dirs | QDir::NoSymLinks | QDir::NoDotAndDotDot))
+        findRecursion(prefix + dir, pattern, result);
+}
+
 GuiProxy::GuiProxy(ScriptEngine *engine, QObject *parent) :
     QObject(parent),
     m_engine(engine),
-    m_gui(0)
+    m_gui(nullptr)
 {
 }
 
@@ -198,6 +220,21 @@ QList<QJSValue> GuiProxy::findChildren(QObject *parent, const QString &objectNam
     return children;
 }
 
+/*!
+    Hides the GUI when \a silent is \c true.
+*/
+void GuiProxy::setSilent(bool silent)
+{
+  if (m_gui)
+      m_gui->setSilent(silent);
+}
+
+void GuiProxy::setTextItems(QObject *object, const QStringList &items)
+{
+    if (m_gui)
+        m_gui->setTextItems(object, items);
+}
+
 void GuiProxy::cancelButtonClicked()
 {
     if (m_gui)
@@ -260,7 +297,7 @@ ScriptEngine::ScriptEngine(PackageManagerCore *core) :
         setGuiQObject(core->guiObject());
         QQmlEngine::setObjectOwnership(core, QQmlEngine::CppOwnership);
         global.setProperty(QLatin1String("installer"), m_engine.newQObject(core));
-        connect(core, SIGNAL(guiObjectChanged(QObject*)), this, SLOT(setGuiQObject(QObject*)));
+        connect(core, &PackageManagerCore::guiObjectChanged, this, &ScriptEngine::setGuiQObject);
     } else {
         global.setProperty(QLatin1String("installer"), m_engine.newQObject(new QObject));
     }
@@ -366,7 +403,7 @@ QJSValue ScriptEngine::loadInContext(const QString &context, const QString &file
 {
     QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly)) {
-        throw Error(tr("Could not open the requested script file at %1: %2.")
+        throw Error(tr("Cannot open script file at %1: %2")
             .arg(fileName, file.errorString()));
     }
 
@@ -381,12 +418,23 @@ QJSValue ScriptEngine::loadInContext(const QString &context, const QString &file
         "    else"
         "        throw \"Missing Component constructor. Please check your script.\";"
         "})();").arg(context);
-    QJSValue scriptContext = evaluate(scriptContent, fileName);
+    QString copiedFileName = fileName;
+#ifdef Q_OS_WIN
+    // Workaround bug reported in QTBUG-70425 by appending "file://" when passing a filename to
+    // QJSEngine::evaluate() to ensure it sees it as a valid URL when qsTr() is used.
+    if (!copiedFileName.startsWith(QLatin1String("qrc:/")) &&
+        !copiedFileName.startsWith(QLatin1String(":/"))) {
+        copiedFileName = QLatin1String("file://") + fileName;
+    }
+#endif
+    QJSValue scriptContext = evaluate(scriptContent, copiedFileName);
     scriptContext.setProperty(QLatin1String("Uuid"), QUuid::createUuid().toString());
     if (scriptContext.isError()) {
-        throw Error(tr("Exception while loading the component script '%1'. (%2)").arg(
-            QFileInfo(file).absoluteFilePath(), scriptContext.toString().isEmpty() ?
-            QString::fromLatin1("Unknown error.") : scriptContext.toString()));
+        throw Error(tr("Exception while loading the component script \"%1\": %2").arg(
+                        QDir::toNativeSeparators(QFileInfo(file).absoluteFilePath()),
+                        scriptContext.toString().isEmpty() ? tr("Unknown error.") : scriptContext.toString() +
+                        QStringLiteral(" ") + tr("on line number: ") +
+                        scriptContext.property(QStringLiteral("lineNumber")).toString()));
     }
     return scriptContext;
 }
@@ -509,7 +557,7 @@ QJSValue ScriptEngine::generateDesktopServicesObject()
     SETPROPERTY(desktopServices, GenericCacheLocation, QStandardPaths)
     SETPROPERTY(desktopServices, GenericConfigLocation, QStandardPaths)
 
-    QJSValue object = m_engine.newQObject(new QDesktopServicesProxy);
+    QJSValue object = m_engine.newQObject(new QDesktopServicesProxy(this));
     object.setPrototype(desktopServices);   // attach the properties
     return object;
 }

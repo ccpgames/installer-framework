@@ -2,6 +2,8 @@ TEMPLATE = lib
 TARGET = installer
 INCLUDEPATH += . ..
 
+CONFIG += staticlib
+
 include(../7zip/7zip.pri)
 include(../kdtools/kdtools.pri)
 include(../../../installerfw.pri)
@@ -34,7 +36,8 @@ QT += \
     xml \
     concurrent \
     widgets \
-    core-private
+    core-private \
+    qml-private
 win32:QT += winextras
 
 HEADERS += packagemanagercore.h \
@@ -125,7 +128,13 @@ HEADERS += packagemanagercore.h \
     serverauthenticationdialog.h \
     keepaliveobject.h \
     systeminfo.h \
-    localsocket.h
+    packagesource.h \
+    lib7z_guid.h \
+    lib7z_create.h \
+    lib7z_extract.h \
+    lib7z_list.h \
+    repositorycategory.h \
+    componentselectionpage_p.h
 
 SOURCES += packagemanagercore.cpp \
     packagemanagercore_p.cpp \
@@ -200,7 +209,10 @@ SOURCES += packagemanagercore.cpp \
     proxycredentialsdialog.cpp \
     serverauthenticationdialog.cpp \
     keepaliveobject.cpp \
-    systeminfo.cpp
+    systeminfo.cpp \
+    packagesource.cpp \
+    repositorycategory.cpp \
+    componentselectionpage_p.cpp
 
 FORMS += proxycredentialsdialog.ui \
     serverauthenticationdialog.ui

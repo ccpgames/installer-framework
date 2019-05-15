@@ -27,7 +27,7 @@
 **************************************************************************/
 
 #include "repository.h"
-#include "kdupdaterfiledownloaderfactory.h"
+#include "filedownloaderfactory.h"
 
 #include <QDataStream>
 #include <QFileInfo>
@@ -41,6 +41,7 @@ namespace QInstaller {
 Repository::Repository()
     : m_default(false)
     , m_enabled(false)
+    , m_compressed(false)
 {
     registerMetaType();
 }
@@ -55,28 +56,32 @@ Repository::Repository(const Repository &other)
     , m_username(other.m_username)
     , m_password(other.m_password)
     , m_displayname(other.m_displayname)
+    , m_compressed(other.m_compressed)
+    , m_archivename(other.m_archivename)
 {
     registerMetaType();
 }
 
 /*!
-    Constructs a new repository by setting its address to \a url and its default state.
+    Constructs a new repository by setting its address to \a url
+    and its default and \a compressed states.
 */
-Repository::Repository(const QUrl &url, bool isDefault)
+Repository::Repository(const QUrl &url, bool isDefault, bool compressed)
     : m_url(url)
     , m_default(isDefault)
     , m_enabled(true)
+    , m_compressed(compressed)
 {
     registerMetaType();
 }
 
 /*!
-    Constructs a new repository by setting its address to \a repositoryUrl as string and its
-    default state.
+    Constructs a new repository by setting its address to \a repositoryUrl as
+    string and its \a compressed state.
 
     Note: user and password can be inside the \a repositoryUrl string: http://user:password@repository.url
 */
-Repository Repository::fromUserInput(const QString &repositoryUrl)
+Repository Repository::fromUserInput(const QString &repositoryUrl, bool compressed)
 {
     QUrl url = QUrl::fromUserInput(repositoryUrl);
     const QStringList supportedSchemes = KDUpdater::FileDownloaderFactory::supportedSchemes();
@@ -88,7 +93,7 @@ Repository Repository::fromUserInput(const QString &repositoryUrl)
     url.setUserName(QString());
     url.setPassword(QString());
 
-    Repository repository(url, false);
+    Repository repository(url, false, compressed);
     repository.setUsername(userName);
     repository.setPassword(password);
     return repository;
@@ -179,7 +184,7 @@ void Repository::setPassword(const QString &password)
 }
 
 /*!
-    Returns the Name for the repository to be displayed instead of the URL
+    Returns the Name for the repository to be displayed instead of the URL.
 */
 QString Repository::displayname() const
 {
@@ -194,6 +199,38 @@ void Repository::setDisplayName(const QString &displayname)
     m_displayname = displayname;
 }
 
+/*!
+    Returns the archive name if the repository belongs to an archive.
+*/
+QString Repository::archivename() const
+{
+    return m_archivename;
+}
+
+/*!
+    Sets the archive name to \a archivename if the repository belongs to an archive.
+*/
+void Repository::setArchiveName(const QString &archivename)
+{
+    m_archivename = archivename;
+}
+
+/*!
+    Returns true if repository is compressed
+*/
+bool Repository::isCompressed() const
+{
+    return m_compressed;
+}
+
+/*!
+    Sets this repository to \a compressed state to know weather the repository
+    needs to be uncompressed before use.
+*/
+void Repository::setCompressed(bool compressed)
+{
+    m_compressed = compressed;
+}
 /*!
     Compares the values of this repository to \a other and returns true if they are equal (same server,
     default state, enabled state as well as username and password). \sa operator!=()
@@ -227,6 +264,8 @@ const Repository &Repository::operator=(const Repository &other)
     m_username = other.m_username;
     m_password = other.m_password;
     m_displayname = other.m_displayname;
+    m_compressed = other.m_compressed;
+    m_archivename = other.m_archivename;
 
     return *this;
 }
@@ -239,8 +278,9 @@ void Repository::registerMetaType()
 
 QDataStream &operator>>(QDataStream &istream, Repository &repository)
 {
-    QByteArray url, username, password, displayname;
-    istream >> url >> repository.m_default >> repository.m_enabled >> username >> password >> displayname;
+    QByteArray url, username, password, displayname, compressed;
+    istream >> url >> repository.m_default >> repository.m_enabled >> username >> password
+            >> displayname >> repository.m_archivename;
     repository.setUrl(QUrl::fromEncoded(QByteArray::fromBase64(url)));
     repository.setUsername(QString::fromUtf8(QByteArray::fromBase64(username)));
     repository.setPassword(QString::fromUtf8(QByteArray::fromBase64(password)));
@@ -252,7 +292,7 @@ QDataStream &operator<<(QDataStream &ostream, const Repository &repository)
 {
     return ostream << repository.m_url.toEncoded().toBase64() << repository.m_default << repository.m_enabled
         << repository.m_username.toUtf8().toBase64() << repository.m_password.toUtf8().toBase64()
-        << repository.m_displayname.toUtf8().toBase64();
+        << repository.m_displayname.toUtf8().toBase64() << repository.m_archivename.toUtf8().toBase64();
 }
 
 }

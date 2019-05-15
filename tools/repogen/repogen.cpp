@@ -30,7 +30,7 @@
 #include <errors.h>
 #include <fileutils.h>
 #include <init.h>
-#include <kdupdater.h>
+#include <updater.h>
 #include <settings.h>
 #include <utils.h>
 #include <lib7z_facade.h>
@@ -46,7 +46,6 @@
 #define QUOTE_(x) #x
 #define QUOTE(x) QUOTE_(x)
 
-using namespace Lib7z;
 using namespace QInstaller;
 
 static void printUsage()
@@ -96,6 +95,7 @@ int main(int argc, char** argv)
         QStringList filteredPackages;
         bool updateExistingRepository = false;
         QStringList packagesDirectories;
+        QStringList repositoryDirectories;
         QInstallerTools::FilterType filterType = QInstallerTools::Exclude;
         bool remove = false;
         bool updateExistingRepositoryWithNewComponents = false;
@@ -125,8 +125,8 @@ int main(int argc, char** argv)
                 args.removeFirst();
                 if (!filteredPackages.isEmpty()) {
                     return printErrorAndUsageAndExit(QCoreApplication::translate("QInstaller",
-                        "Error: --include and --exclude are mutual exclusive options. Use either "
-                        "one or the other."));
+                        "Error: --include and --exclude are mutually exclusive. Use either one or "
+                        "the other."));
                 }
 
                 if (args.isEmpty() || args.first().startsWith(QLatin1Char('-'))) {
@@ -157,6 +157,19 @@ int main(int argc, char** argv)
 
                 packagesDirectories.append(args.first());
                 args.removeFirst();
+            } else if (args.first() == QLatin1String("--repository")) {
+                args.removeFirst();
+                if (args.isEmpty()) {
+                    return printErrorAndUsageAndExit(QCoreApplication::translate("QInstaller",
+                        "Error: Repository parameter missing argument"));
+                }
+
+                if (!QFileInfo(args.first()).exists()) {
+                    return printErrorAndUsageAndExit(QCoreApplication::translate("QInstaller",
+                        "Error: Only local filesystem repositories now supported"));
+                }
+                repositoryDirectories.append(args.first());
+                args.removeFirst();
             } else if (args.first() == QLatin1String("--ignore-translations")
                 || args.first() == QLatin1String("--ignore-invalid-packages")) {
                     args.removeFirst();
@@ -169,7 +182,7 @@ int main(int argc, char** argv)
             }
         }
 
-        if (packagesDirectories.isEmpty() || (args.count() != 1)) {
+        if ((packagesDirectories.isEmpty() && repositoryDirectories.isEmpty()) || (args.count() != 1)) {
                 printUsage();
                 return 1;
         }
@@ -188,11 +201,18 @@ int main(int argc, char** argv)
             QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty()) {
 
             throw QInstaller::Error(QCoreApplication::translate("QInstaller",
-                "Repository target folder %1 already exists!").arg(repositoryDir));
+                "Repository target directory \"%1\" already exists.").arg(QDir::toNativeSeparators(repositoryDir)));
         }
 
-        QInstallerTools::PackageInfoVector packages = QInstallerTools::createListOfPackages(packagesDirectories,
+        QInstallerTools::PackageInfoVector packages;
+
+        QInstallerTools::PackageInfoVector precompressedPackages = QInstallerTools::createListOfRepositoryPackages(repositoryDirectories,
             &filteredPackages, filterType);
+        packages.append(precompressedPackages);
+
+        QInstallerTools::PackageInfoVector preparedPackages = QInstallerTools::createListOfPackages(packagesDirectories,
+            &filteredPackages, filterType);
+        packages.append(preparedPackages);
 
         if (updateExistingRepositoryWithNewComponents) {
             QDomDocument doc;
@@ -201,7 +221,7 @@ int main(int argc, char** argv)
                 const QDomElement root = doc.documentElement();
                 if (root.tagName() != QLatin1String("Updates")) {
                     throw QInstaller::Error(QCoreApplication::translate("QInstaller",
-                        "Invalid content in '%1'.").arg(file.fileName()));
+                        "Invalid content in \"%1\".").arg(QDir::toNativeSeparators(file.fileName())));
                 }
                 file.close(); // close the file, we read the content already
 
@@ -216,7 +236,7 @@ int main(int argc, char** argv)
                         for (int j = 0; j < c2.count(); ++j) {
                             if (c2.at(j).toElement().tagName() == scName)
                                 info.name = c2.at(j).toElement().text();
-                            else if (c2.at(j).toElement().tagName() == scRemoteVersion)
+                            else if (c2.at(j).toElement().tagName() == scVersion)
                                 info.version = c2.at(j).toElement().text();
                         }
                         hash.insert(info.name, info);
@@ -234,7 +254,7 @@ int main(int argc, char** argv)
                 }
 
                 if (packages.isEmpty()) {
-                    std::cout << QString::fromLatin1("Could not find new components to update '%1'.")
+                    std::cout << QString::fromLatin1("Cannot find new components to update \"%1\".")
                         .arg(repositoryDir) << std::endl;
                     return EXIT_SUCCESS;
                 }
@@ -252,7 +272,10 @@ int main(int argc, char** argv)
         QTemporaryDir tmp;
         tmp.setAutoRemove(false);
         tmpMetaDir = tmp.path();
-        QInstallerTools::copyComponentData(packagesDirectories, repositoryDir, &packages);
+        QStringList directories;
+        directories.append(packagesDirectories);
+        directories.append(repositoryDirectories);
+        QInstallerTools::copyComponentData(directories, repositoryDir, &packages);
         QInstallerTools::copyMetaData(tmpMetaDir, repositoryDir, packages, QLatin1String("{AnyApplication}"),
             QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
         QInstallerTools::compressMetaDirectories(tmpMetaDir, tmpMetaDir, pathToVersionMapping);

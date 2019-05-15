@@ -31,12 +31,12 @@
 #include "downloadfiletask_p.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QNetworkProxyFactory>
 #include <QSslError>
 #include <QTemporaryFile>
-#include <QTimer>
 
 namespace QInstaller {
 
@@ -49,7 +49,8 @@ AuthenticationRequiredException::AuthenticationRequiredException(Type type, cons
 Downloader::Downloader()
     : m_finished(0)
 {
-    connect(&m_nam, SIGNAL(finished(QNetworkReply*)), SLOT(onFinished(QNetworkReply*)));
+    connect(&m_timer, &QTimer::timeout, this, &Downloader::onTimeout);
+    connect(&m_nam, &QNetworkAccessManager::finished, this, &Downloader::onFinished);
 }
 
 Downloader::~Downloader()
@@ -72,15 +73,17 @@ void Downloader::download(QFutureInterface<FileTaskResult> &fi, const QList<File
     fi.setExpectedResultCount(items.count());
 
     m_nam.setProxyFactory(networkProxyFactory);
-    connect(&m_nam, SIGNAL(authenticationRequired(QNetworkReply*,QAuthenticator*)), this,
-        SLOT(onAuthenticationRequired(QNetworkReply*,QAuthenticator*)));
-    connect(&m_nam, SIGNAL(proxyAuthenticationRequired(QNetworkProxy,QAuthenticator*)), this,
-            SLOT(onProxyAuthenticationRequired(QNetworkProxy,QAuthenticator*)));
-    QTimer::singleShot(0, this, SLOT(doDownload()));
+    connect(&m_nam, &QNetworkAccessManager::authenticationRequired, this,
+        &Downloader::onAuthenticationRequired);
+    connect(&m_nam, &QNetworkAccessManager::proxyAuthenticationRequired, this,
+            &Downloader::onProxyAuthenticationRequired);
+    QTimer::singleShot(0, this, &Downloader::doDownload);
 }
 
 void Downloader::doDownload()
 {
+    m_timer.start(1000); // Use a timer to check for canceled downloads.
+
     foreach (const FileTaskItem &item, m_items) {
         if (!startDownload(item))
             break;
@@ -120,15 +123,17 @@ void Downloader::onReadyRead()
         }
 
         if (file->exists() && (!QFileInfo(file->fileName()).isFile())) {
-            m_futureInterface->reportException(TaskException(tr("Target file '%1' already exists "
+            m_futureInterface->reportException(TaskException(tr("Target file \"%1\" already exists "
                 "but is not a file.").arg(file->fileName())));
             return;
         }
 
         if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             //: %2 is a sentence describing the error
-            m_futureInterface->reportException(TaskException(tr("Could not open target '%1' for "
-                "write. Error: %2.").arg(file->fileName(), file->errorString())));
+            m_futureInterface->reportException(
+                        TaskException(tr("Cannot open file \"%1\" for writing: %2").arg(
+                                          QDir::toNativeSeparators(file->fileName()),
+                                          file->errorString())));
             return;
         }
         data.file = std::move(file);
@@ -137,8 +142,9 @@ void Downloader::onReadyRead()
     if (!data.file->isOpen()) {
         //: %2 is a sentence describing the error.
         m_futureInterface->reportException(
-                    TaskException(tr("Target '%1' not open for write. Error: %2.").arg(
-                                          data.file->fileName(), data.file->errorString())));
+                    TaskException(tr("File \"%1\" not open for writing: %2").arg(
+                                      QDir::toNativeSeparators(data.file->fileName()),
+                                      data.file->errorString())));
         return;
     }
 
@@ -156,8 +162,9 @@ void Downloader::onReadyRead()
             if (toWrite < 0) {
                 //: %2 is a sentence describing the error.
                 m_futureInterface->reportException(
-                            TaskException(tr("Writing to target '%1' failed. Error: %2.").arg(
-                                                  data.file->fileName(), data.file->errorString())));
+                            TaskException(tr("Writing to file \"%1\" failed: %2").arg(
+                                                  QDir::toNativeSeparators(data.file->fileName()),
+                                              data.file->errorString())));
                 return;
             }
             written += toWrite;
@@ -203,7 +210,7 @@ void Downloader::onFinished(QNetworkReply *reply)
                 reply->deleteLater();
                 return;
             } else {
-                m_futureInterface->reportException(TaskException(tr("Redirect loop detected '%1'.")
+                m_futureInterface->reportException(TaskException(tr("Redirect loop detected for \"%1\".")
                     .arg(url.toString())));
                 return;
             }
@@ -218,13 +225,13 @@ void Downloader::onFinished(QNetworkReply *reply)
     }
 
     const QByteArray expectedCheckSum = data.taskItem.value(TaskRole::Checksum).toByteArray();
+    bool checksumMismatch = false;
     if (!expectedCheckSum.isEmpty()) {
-        if (expectedCheckSum != data.observer->checkSum().toHex()) {
-            m_futureInterface->reportException(TaskException(tr("Checksum mismatch detected '%1'.")
-                .arg(reply->url().toString())));
-        }
+        if (expectedCheckSum != data.observer->checkSum().toHex())
+            checksumMismatch = true;
     }
-    m_futureInterface->reportResult(FileTaskResult(filename, data.observer->checkSum(), data.taskItem));
+    m_futureInterface->reportResult(FileTaskResult(filename, data.observer->checkSum(), data.taskItem,
+                                                  checksumMismatch));
 
     m_downloads.erase(reply);
     m_redirects.remove(reply);
@@ -250,6 +257,7 @@ void Downloader::onError(QNetworkReply::NetworkError error)
         const Data &data = *m_downloads[reply];
         //Do not throw error if Updates.xml not found. The repository might be removed
         //with RepositoryUpdate in Updates.xml later.
+        //: %2 is a sentence describing the error
         if (data.taskItem.source().contains(QLatin1String("Updates.xml"), Qt::CaseInsensitive)) {
             qDebug() << QString::fromLatin1("Network error while downloading '%1': %2.").arg(
                    data.taskItem.source(), reply->errorString());
@@ -258,12 +266,10 @@ void Downloader::onError(QNetworkReply::NetworkError error)
                 TaskException(tr("Network error while downloading '%1': %2.").arg(
                                       data.taskItem.source(), reply->errorString())));
         }
-        //: %2 is a sentence describing the error
-
     } else {
         //: %1 is a sentence describing the error
         m_futureInterface->reportException(
-                    TaskException(tr("Unknown network error while downloading: %1.").arg(error)));
+                    TaskException(tr("Unknown network error while downloading \"%1\".").arg(error)));
     }
 }
 
@@ -273,7 +279,7 @@ void Downloader::onSslErrors(const QList<QSslError> &sslErrors)
     Q_UNUSED(sslErrors);
 #else
     foreach (const QSslError &error, sslErrors)
-        qDebug() << QString::fromLatin1("SSL error: %s").arg(error.errorString());
+        qDebug() << "SSL error:" << error.errorString();
 #endif
 }
 
@@ -320,6 +326,28 @@ void Downloader::onProxyAuthenticationRequired(const QNetworkProxy &proxy, QAuth
 }
 
 
+/*!
+    \internal
+
+    Canceling from the outside will not get noticed if we are waiting on a connection that
+    does not create any events. QNam will drop after 45 seconds, though the user might have
+    canceled the download before. In that case we block until the QNam timeout is reached,
+    worst case resulting in deadlock while the application is shutting down at the same time.
+*/
+void Downloader::onTimeout()
+{
+    if (testCanceled()) {
+        // Inject exception, we can't use QFuturInterface::reportException() as the exception
+        // store is "frozen" once cancel was called. On the other hand, client code could use
+        // QFutureWatcherBase::isCanceled() or QFuture::isCanceled() to check for canceled futures.
+        m_futureInterface->exceptionStore()
+            .setException(TaskException(tr("Network transfers canceled.")));
+        m_futureInterface->reportFinished();
+        emit finished();
+    }
+}
+
+
 // -- private
 
 bool Downloader::testCanceled()
@@ -338,7 +366,7 @@ QNetworkReply *Downloader::startDownload(const FileTaskItem &item)
     QUrl const source = item.source();
     if (!source.isValid()) {
         //: %2 is a sentence describing the error
-        m_futureInterface->reportException(TaskException(tr("Invalid source '%1'. Error: %2.")
+        m_futureInterface->reportException(TaskException(tr("Invalid source URL \"%1\": %2")
             .arg(source.toString(), source.errorString())));
         return 0;
     }
@@ -347,14 +375,13 @@ QNetworkReply *Downloader::startDownload(const FileTaskItem &item)
     std::unique_ptr<Data> data(new Data(item));
     m_downloads[reply] = std::move(data);
 
-    connect(reply, SIGNAL(readyRead()), this, SLOT(onReadyRead()));
+    connect(reply, &QIODevice::readyRead, this, &Downloader::onReadyRead);
     connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), this,
         SLOT(onError(QNetworkReply::NetworkError)));
 #ifndef QT_NO_SSL
-    connect(reply, SIGNAL(sslErrors(QList<QSslError>)), SLOT(onSslErrors(QList<QSslError>)));
+    connect(reply, &QNetworkReply::sslErrors, this, &Downloader::onSslErrors);
 #endif
-    connect(reply, SIGNAL(downloadProgress(qint64, qint64)), this, SLOT(onDownloadProgress(qint64,
-        qint64)));
+    connect(reply, &QNetworkReply::downloadProgress, this, &Downloader::onDownloadProgress);
     return reply;
 }
 
@@ -401,7 +428,7 @@ void DownloadFileTask::doTask(QFutureInterface<FileTaskResult> &fi)
 {
     QEventLoop el;
     Downloader downloader;
-    connect(&downloader, SIGNAL(finished()), &el, SLOT(quit()));
+    connect(&downloader, &Downloader::finished, &el, &QEventLoop::quit);
 
     QList<FileTaskItem> items = taskItems();
     if (!m_authenticator.isNull()) {

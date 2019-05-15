@@ -1,6 +1,6 @@
 /**************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Installer Framework.
@@ -52,6 +52,9 @@ CommandLineParser::CommandLineParser()
 
     m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::Proxy),
         QLatin1String("Use system proxy on Windows and Linux. This option has no effect on OS X.")));
+
+    m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::NoProxy),
+        QLatin1String("Do not use system proxy.")));
 
     m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::Script),
         QLatin1String("Execute the script given as argument."), QLatin1String("file")));
@@ -109,7 +112,20 @@ CommandLineParser::CommandLineParser()
         "a value is omitted, the client will use a default instead. Note: The server process is "
         "not started by the client application in that case, you need to start it on your own."),
         QLatin1String("socketname,key")));
-
+    m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::InstallCompressedRepository),
+        QLatin1String("Installs QBSP or 7z file. The QBSP (Board Support Package) file must be a .7z "
+        "file which contains a valid repository."),
+        QLatin1String("URI,...")));
+    m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::SilentUpdate),
+        QLatin1String("Updates all packages silently.")));
+    m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::Platform),
+        QLatin1String("Use the specified platform plugin."), QLatin1String("plugin")));
     m_parser.addPositionalArgument(QLatin1String(CommandLineOptions::KeyValue),
         QLatin1String("Key Value pair to be set."));
+    m_parser.addOption(QCommandLineOption(QLatin1String(CommandLineOptions::SquishPort),
+        QLatin1String("Give a port where Squish can connect to. If no port is given, default "
+        "port 11233 is used. Note: To enable Squish support you first need to build IFW with "
+        "SQUISH_PATH parameter where SQUISH_PATH is pointing to your Squish installation folder: "
+        "<path_to_qt>/bin/qmake -r SQUISH_PATH=<pat_to_squish>"),
+        QLatin1String("port number")));
 }

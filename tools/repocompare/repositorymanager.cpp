@@ -28,6 +28,7 @@
 #include "repositorymanager.h"
 
 #include <QDebug>
+#include <QDir>
 #include <QFile>
 #include <QStringList>
 #include <QUrl>
@@ -61,7 +62,7 @@ RepositoryManager::RepositoryManager(QObject *parent) :
     QObject(parent)
 {
     manager = new QNetworkAccessManager(this);
-    connect(manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(receiveRepository(QNetworkReply*)));
+    connect(manager, &QNetworkAccessManager::finished, this, &RepositoryManager::receiveRepository);
     productionMap.clear();
     updateMap.clear();
 }
@@ -70,7 +71,7 @@ void RepositoryManager::setProductionRepository(const QString &repo)
 {
     QUrl url(repo);
     if (!url.isValid()) {
-        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
+        QMessageBox::critical(nullptr, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
         return;
     }
 
@@ -82,7 +83,7 @@ void RepositoryManager::setUpdateRepository(const QString &repo)
 {
     QUrl url(repo);
     if (!url.isValid()) {
-        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
+        QMessageBox::critical(nullptr, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
         return;
     }
 
@@ -180,13 +181,15 @@ void RepositoryManager::writeUpdateFile(const QString &fileName)
 {
     QFile file(fileName);
     if (!file.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
-        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Could not open File for saving"));
+        QMessageBox::critical(nullptr, QLatin1String("Error"),
+                              QString::fromLatin1("Cannot open file \"%1\" for writing: %2").arg(
+                                  QDir::toNativeSeparators(fileName), file.errorString()));
         return;
     }
 
     QStringList items;
-    for (QMap<QString, ComponentDescription>::const_iterator it = updateMap.begin(); it != updateMap.end();
-        ++it) {
+    for (QMap<QString, ComponentDescription>::const_iterator it = updateMap.constBegin();
+         it != updateMap.constEnd(); ++it) {
             if (it.value().update)
                 items.append(it.key());
     }
