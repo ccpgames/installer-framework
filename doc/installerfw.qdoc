@@ -217,18 +217,13 @@
             \li WizardStyle
             \li Set the wizard style to be used ("Modern", "Mac", "Aero" or "Classic").
         \row
-            \li StyleSheet
-            \li Set the stylesheet file.
-        \row
             \li WizardDefaultWidth
             \li Sets the default width of the wizard in pixels. Setting a banner image will
-                override this. You can add the \c em or \c ex suffix to the specified value to
-                use the \e em or \e ex unit, as in a CSS file.
+                override this.
         \row
             \li WizardDefaultHeight
             \li Sets the default height of the wizard in pixels. Setting a watermark image will
-                override this. You can add the \c em or \c ex suffix to the specified value to
-                use the \e em or \e ex unit, as in a CSS file.
+                override this.
         \row
             \li TitleColor
             \li Set the color of the titles and subtitles (takes an HTML color code,
@@ -266,10 +261,6 @@
                 elements that each contain the \c <Url> child element that specifies the URL to
                 access the repository. For more information,  see \l{Configuring Repositories}.
         \row
-            \li RepositoryCategories
-            \li Name of a category that can contain a list of \c <RemoteRepositories> child elements.
-                For more information,  see \l{Configuring Repository Categories}.
-        \row
             \li MaintenanceToolName
             \li Filename of the generated maintenance tool. Defaults to
                 \e maintenancetool. The platform-specific executable file extension is
@@ -285,10 +276,6 @@
             \li AllowNonAsciiCharacters
             \li Set to \c true if the installation path can contain non-ASCII
                 characters.
-        \row
-            \li DisableAuthorizationFallback
-            \li Set to \c true if the installation should not ask users to run the authorization
-                fallback in case of authorization errors. Instead abort the installation immediately.
         \row
             \li RepositorySettingsPageVisible
             \li Set to \c false to hide the repository settings page inside the settings dialog.
@@ -320,27 +307,6 @@
             \li Set to \c true if you want to create a local repository inside the installation directory.
                 This option has no effect on online installers. The repository will be automatically added
                 to the list of default repositories.
-        \row
-            \li InstallActionColumnVisible
-            \li Set to \c true if you want to add an extra column into component tree showing install actions.
-                This extra column indicates whether a component is going to be installed or uninstalled,
-                or just stay installed or uninstalled.
-        \row
-            \li SupportsModify
-            \li Set to \c false if the product does not support modifying an existing installation.
-         \row
-            \li SaveDefaultRepositories
-            \li Set to \c false if default repositories \c <RemoteRepositories> should not be saved to \e {MaintenanceToolName}.ini.
-                By default default repositories are saved. Not saving the repositories means than when you run  \e maintenancetool
-                there are no default repositories in use.
-         \row
-            \li AllowUnstableComponents
-            \li Set to \c true if other components are allowed to be installed
-                although there are unstable components. A component is \e unstable
-                if it is missing a dependency, has errors in scripts, and so on.
-                Unstable components are grayed in the component tree, and therefore
-                cannot be selected. By default, the value is \c false  which means
-                that the installation will be aborted if unstable components are found.
 
     \endtable
 
@@ -577,12 +543,11 @@
         \row
             \li DisplayName
             \li Human-readable name of the component. Required.
-                Specify translations for the name of the component as values of additional
-                DisplayName tags, with the xml:lang attribute set to the correct locale.
         \row
             \li Description
             \li Human-readable description of the component. Required.
-                Translations may be specified similarly to DisplayName tag.
+                Specify translations for the description as values of additional
+                Description tags, with the xml:lang attribute set to the correct locale.
                 If a localization that matches the locale is not found and an untranslated
                 version exists, that one will be used. Otherwise no Description will be
                 shown for that locale.
@@ -638,8 +603,6 @@
             \li List of license agreements to be accepted by the installing
                 user. To add several licenses, add several \c <License> child
                 elements that each specify the license \c name and \c file.
-                ASCII and UTF8 file formats are supported for license files.
-
                 If there are translations listed for this component, the installer
                 will also look for translated licenses. These need to have the
                 same name as the original license file but with an added
@@ -704,14 +667,6 @@
             \li RequiresAdminRights
             \li Set to \c true if the package needs to be installed with elevated permissions.
                 Optional.
-        \row
-            \li Checkable
-            \li Set to \c false if you want to hide the checkbox for an item. This is useful
-                when only a few subcomponents should be selected instead of all. Optional.
-        \row
-            \li ExpandedByDefault
-            \li Set to \c true if you want this item to be expanded by default. Optional.
-
     \endtable
 
     \section2 Component Dependencies
@@ -775,7 +730,7 @@
 
     You can also create hybrid installers that store some components locally
     and receive others via a network connection. For more information, see
-    \l {Reducing Installer Size}.
+    ###TODO insert link here.
 
     For information about how to implement data integration into the
     installer binary, see QInstaller::BinaryContent.
@@ -842,11 +797,6 @@
                 {package directory}.
                 Defaults to the current working directory.
         \row
-            \li --repository directory
-            \li Use \c directory as the repository directory
-                with packages to repack.
-                This entry can be given multiple times.
-        \row
             \li -n or --online-only
             \li Compile without any component in the installer binary.
         \row
@@ -878,17 +828,8 @@
             \li Ignore component or package directories that do not have valid
                 metadata information (package.xml) to make testing faster.
         \row
-            \li --ignore-invalid-repositories
-            \li Ignore repository directories that do not have valid
-                metadata information (Updates.xml) instead of aborting.
-        \row
             \li -v or --verbose
             \li Display debug output.
-
-        \row
-            \li -s or --sign identity
-            \li Only available on OS X. Allows specifying a code signing identity to be
-                used for signing the generated app bundle.
     \endtable
 
     These parameters are followed by the name of the target binary and a list
@@ -897,11 +838,6 @@
     \note The listed packages are included in the installer, as well as all
     their dependencies and all packages that share the same prefix, unless you
     specify the \c --nodeps parameter.
-
-    In the optional resource files specified via the \c --resources parameter, a
-    special \c fonts/ path can be used to ship custom fonts. These fonts will
-    be loaded automatically and thus become available in a stylesheet which can
-    be specified via the \c StyleSheet variable.
 
     On Windows, the name of the target binary is automatically extended with
     .exe, if you do not specify the extension. On Mac, the target is
@@ -935,9 +871,6 @@
     specify the location in the installer configuration file when creating an
     installer for it.
 
-    You can use an existing repository to repack packages to another
-    repository or offline installer.
-
     \section2 Summary of repogen Parameters
 
     \table
@@ -948,12 +881,6 @@
             \li -p or --packages directory
             \li Use \c directory as the \l{Package Directory Structure}
                 {package directory}. This is mandatory.
-        \row
-            \li --repository directory
-            \li Use \c directory as the repository directory
-                with packages to repack (not to confuse with the mandatory target
-                repository directory).
-                This entry can be given multiple times.
         \row
             \li repository directory
             \li Target directory for the repository. During an initial installation, the directory
@@ -1126,43 +1053,6 @@
     text. Authentication details not set here will be gotten at runtime using a dialog.
     The user can work around these settings at runtime.
 
-    \section1 Configuring Repository Categories
-
-    The \c <RepositoryCategory> element in the installer configuration file
-    (config.xml) can contain a list of several \c <RemoteRepositories> elements. Each \c <RemoteRepositories>
-    element within the \c <RepositoryCagetory> element is considered a category. Each catecory can have
-    a \c <DisplayName>, a \c <Tooltip>, a \c <Preselected> element and several \c <Repository> elements.
-    Repository categories are shown in the component selection page,
-    on the left side of the component selection widget:
-
-    \image ifw-repository-categories.png "Component selection Page"
-
-    By default, only repositories with no category are shown in the component selection widget. Checking one or
-    several repositories and pressing \uicontrol Fetch will update the widget to show content also
-    from the selected categorized repositories. Components in the repository
-    categories are marked as \e unstable meaning that you can install other
-    components although some components have missing dependencies, script
-    errors and so on. For more information about \e unstable components, see
-    \l {Summary of Configuration File Elements}.
-
-    Example of creating a repository category:
-
-    \code
-    <RepositoryCategories>
-        <RemoteRepositories>
-             <Displayname>Category 1</Displayname>
-             <Preselected>true</Preselected>
-             <Tooltip>Tooltip for category 1</Tooltip>
-             <Repository>
-                     <Url>http://www.example.com/packages</Url>
-                     <Enabled>1</Enabled>
-                     <Username>user</Username>
-                     <Password>password</Password>
-                     <DisplayName>Example repository</DisplayName>
-             </Repository>
-        </RemoteRepositories>
-    </RepositoryCategories>
-    \endcode
 
     \section1 Creating Installer Binaries
 

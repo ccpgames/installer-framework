@@ -1,7 +1,5 @@
 /* Threads.c -- multithreading library
-2013-11-12 : Igor Pavlov : Public domain */
-
-#include "Precomp.h"
+2009-09-20 : Igor Pavlov : Public domain */
 
 #ifndef _WIN32_WCE
 #include <process.h>
@@ -31,21 +29,14 @@ WRes Handle_WaitObject(HANDLE h) { return (WRes)WaitForSingleObject(h, INFINITE)
 
 WRes Thread_Create(CThread *p, THREAD_FUNC_TYPE func, LPVOID param)
 {
-  /* Windows Me/98/95: threadId parameter may not be NULL in _beginthreadex/CreateThread functions */
-
-  #ifdef UNDER_CE
-
-  DWORD threadId;
-  *p = CreateThread(0, 0, func, param, 0, &threadId);
-
-  #else
-
-  unsigned threadId;
-  *p = (HANDLE)_beginthreadex(NULL, 0, func, param, 0, &threadId);
-
-  #endif
-
-  /* maybe we must use errno here, but probably GetLastError() is also OK. */
+  unsigned threadId; /* Windows Me/98/95: threadId parameter may not be NULL in _beginthreadex/CreateThread functions */
+  *p =
+    #ifdef UNDER_CE
+    CreateThread(0, 0, func, param, 0, &threadId);
+    #else
+    (HANDLE)_beginthreadex(NULL, 0, func, param, 0, &threadId);
+    #endif
+    /* maybe we must use errno here, but probably GetLastError() is also OK. */
   return HandleToWRes(*p);
 }
 

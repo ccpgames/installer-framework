@@ -35,23 +35,14 @@ namespace QInstaller {
 
 class INSTALLER_EXPORT CreateShortcutOperation : public Operation
 {
-    Q_DECLARE_TR_FUNCTIONS(QInstaller::CreateShortcutOperation)
 public:
-    explicit CreateShortcutOperation(PackageManagerCore *core);
+    CreateShortcutOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
-
-private:
-    void ensureOptionalArgumentsRead();
-
-    bool m_optionalArgumentsRead;
-    QString m_iconId;
-    QString m_iconPath;
-    QString m_workingDir;
-    QString m_description;
+    Operation *clone() const;
 };
 
 }

@@ -9,28 +9,30 @@ namespace NCoderMixer {
 CCoder2::CCoder2(UInt32 numInStreams, UInt32 numOutStreams):
     CCoderInfo2(numInStreams, numOutStreams)
 {
-  InStreams.ClearAndReserve(NumInStreams);
-  OutStreams.ClearAndReserve(NumOutStreams);
+  InStreams.Reserve(NumInStreams);
+  InStreamPointers.Reserve(NumInStreams);
+  OutStreams.Reserve(NumOutStreams);
+  OutStreamPointers.Reserve(NumOutStreams);
 }
 
 void CCoder2::Execute() { Code(NULL); }
 
 void CCoder2::Code(ICompressProgressInfo *progress)
 {
-  InStreamPointers.ClearAndReserve(NumInStreams);
-  OutStreamPointers.ClearAndReserve(NumOutStreams);
+  InStreamPointers.Clear();
+  OutStreamPointers.Clear();
   UInt32 i;
   for (i = 0; i < NumInStreams; i++)
   {
-    if (InSizePointers[i])
+    if (InSizePointers[i] != NULL)
       InSizePointers[i] = &InSizes[i];
-    InStreamPointers.AddInReserved((ISequentialInStream *)InStreams[i]);
+    InStreamPointers.Add((ISequentialInStream *)InStreams[i]);
   }
   for (i = 0; i < NumOutStreams; i++)
   {
-    if (OutSizePointers[i])
+    if (OutSizePointers[i] != NULL)
       OutSizePointers[i] = &OutSizes[i];
-    OutStreamPointers.AddInReserved((ISequentialOutStream *)OutStreams[i]);
+    OutStreamPointers.Add((ISequentialOutStream *)OutStreams[i]);
   }
   if (Coder)
     Result = Coder->Code(InStreamPointers[0], OutStreamPointers[0],
@@ -39,7 +41,7 @@ void CCoder2::Code(ICompressProgressInfo *progress)
     Result = Coder2->Code(&InStreamPointers.Front(), &InSizePointers.Front(), NumInStreams,
       &OutStreamPointers.Front(), &OutSizePointers.Front(), NumOutStreams, progress);
   {
-    unsigned i;
+    int i;
     for (i = 0; i < InStreams.Size(); i++)
       InStreams[i].Release();
     for (i = 0; i < OutStreams.Size(); i++)
@@ -47,13 +49,32 @@ void CCoder2::Code(ICompressProgressInfo *progress)
   }
 }
 
-/*
+static void SetSizes(const UInt64 **srcSizes, CRecordVector<UInt64> &sizes,
+    CRecordVector<const UInt64 *> &sizePointers, UInt32 numItems)
+{
+  sizes.Clear();
+  sizePointers.Clear();
+  for (UInt32 i = 0; i < numItems; i++)
+  {
+    if (srcSizes == 0 || srcSizes[i] == NULL)
+    {
+      sizes.Add(0);
+      sizePointers.Add(NULL);
+    }
+    else
+    {
+      sizes.Add(*srcSizes[i]);
+      sizePointers.Add(&sizes.Back());
+    }
+  }
+}
+
+
 void CCoder2::SetCoderInfo(const UInt64 **inSizes, const UInt64 **outSizes)
 {
   SetSizes(inSizes, InSizes, InSizePointers, NumInStreams);
   SetSizes(outSizes, OutSizes, OutSizePointers, NumOutStreams);
 }
-*/
 
 //////////////////////////////////////
 // CCoderMixer2MT
@@ -62,9 +83,10 @@ HRESULT CCoderMixer2MT::SetBindInfo(const CBindInfo &bindInfo)
 {
   _bindInfo = bindInfo;
   _streamBinders.Clear();
-  FOR_VECTOR (i, _bindInfo.BindPairs)
+  for (int i = 0; i < _bindInfo.BindPairs.Size(); i++)
   {
-    RINOK(_streamBinders.AddNew().CreateEvents());
+    _streamBinders.Add(CStreamBinder());
+    RINOK(_streamBinders.Back().CreateEvents());
   }
   return S_OK;
 }
@@ -91,7 +113,7 @@ void CCoderMixer2MT::AddCoder2(ICompressCoder2 *coder)
 
 void CCoderMixer2MT::ReInit()
 {
-  FOR_VECTOR (i, _streamBinders)
+  for (int i = 0; i < _streamBinders.Size(); i++)
     _streamBinders[i].ReInit();
 }
 
@@ -102,7 +124,7 @@ HRESULT CCoderMixer2MT::Init(ISequentialInStream **inStreams, ISequentialOutStre
   if (_coders.Size() != _bindInfo.Coders.Size())
     throw 0;
   */
-  unsigned i;
+  int i;
   for (i = 0; i < _coders.Size(); i++)
   {
     CCoder2 &coderInfo = _coders[i];
@@ -145,7 +167,7 @@ HRESULT CCoderMixer2MT::Init(ISequentialInStream **inStreams, ISequentialOutStre
     _bindInfo.FindInStream(_bindInfo.InStreams[i], inCoderIndex, inCoderStreamIndex);
     _coders[inCoderIndex].InStreams[inCoderStreamIndex] = inStreams[i];
   }
-
+  
   for (i = 0; i < _bindInfo.OutStreams.Size(); i++)
   {
     UInt32 outCoderIndex, outCoderStreamIndex;
@@ -157,7 +179,7 @@ HRESULT CCoderMixer2MT::Init(ISequentialInStream **inStreams, ISequentialOutStre
 
 HRESULT CCoderMixer2MT::ReturnIfError(HRESULT code)
 {
-  FOR_VECTOR (i, _coders)
+  for (int i = 0; i < _coders.Size(); i++)
     if (_coders[i].Result == code)
       return code;
   return S_OK;
@@ -177,7 +199,7 @@ STDMETHODIMP CCoderMixer2MT::Code(ISequentialInStream **inStreams,
 
   Init(inStreams, outStreams);
 
-  unsigned i;
+  int i;
   for (i = 0; i < _coders.Size(); i++)
     if (i != _progressCoderIndex)
     {
@@ -192,7 +214,7 @@ STDMETHODIMP CCoderMixer2MT::Code(ISequentialInStream **inStreams,
 
   for (i = 0; i < _coders.Size(); i++)
     if (i != _progressCoderIndex)
-      _coders[i].WaitExecuteFinish();
+      _coders[i].WaitFinish();
 
   RINOK(ReturnIfError(E_ABORT));
   RINOK(ReturnIfError(E_OUTOFMEMORY));

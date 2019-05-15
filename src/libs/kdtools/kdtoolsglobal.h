@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 
-#ifndef KDTOOLSGLOBAL_H
-#define KDTOOLSGLOBAL_H
+#ifndef KDTOOLS_KDTOOLSGLOBAL_H
+#define KDTOOLS_KDTOOLSGLOBAL_H
 
 #include <QtCore/QtGlobal>
 
@@ -41,5 +41,5 @@
 #  define KDTOOLS_EXPORT
 #endif // KDTOOLS_SHARED
 
-#endif // KDTOOLSGLOBAL_H
+#endif // KDTOOLS_KDTOOLSGLOBAL_H
 

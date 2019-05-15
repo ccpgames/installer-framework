@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 
-#ifndef ENVIRONMENT_H
-#define ENVIRONMENT_H
+#ifndef LIBINSTALLER_ENVIRONMENT_H
+#define LIBINSTALLER_ENVIRONMENT_H
 
 #include "kdtoolsglobal.h"
 
@@ -64,4 +64,4 @@ private:
 
 } // namespace KDUpdater
 
-#endif // ENVIRONMENT_H
+#endif

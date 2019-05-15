@@ -41,12 +41,13 @@ class INSTALLER_EXPORT CreateLocalRepositoryOperation : public QObject, public O
     friend struct AutoHelper;
 
 public:
-    explicit CreateLocalRepositoryOperation(PackageManagerCore *core);
+    CreateLocalRepositoryOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation *clone() const;
 
 signals:
     void progressChanged(double progress);

@@ -38,13 +38,14 @@ class INSTALLER_EXPORT ElevatedExecuteOperation : public QObject, public Operati
     Q_OBJECT
 
 public:
-    explicit ElevatedExecuteOperation(PackageManagerCore *core);
+    ElevatedExecuteOperation();
     ~ElevatedExecuteOperation();
-
-    void backup() Q_DECL_OVERRIDE;
-    bool performOperation() Q_DECL_OVERRIDE;
-    bool undoOperation() Q_DECL_OVERRIDE;
-    bool testOperation() Q_DECL_OVERRIDE;
+    
+    virtual void backup();
+    virtual bool performOperation();
+    virtual bool undoOperation();
+    virtual bool testOperation();
+    virtual Operation *clone() const;
 
 Q_SIGNALS:
     void cancelProcess();

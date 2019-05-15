@@ -38,18 +38,13 @@ class INSTALLER_EXPORT RegisterFileTypeOperation : public QObject, public Operat
     Q_OBJECT
 
 public:
-    explicit RegisterFileTypeOperation(PackageManagerCore *core);
+    RegisterFileTypeOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
-
-private:
-    void ensureOptionalArgumentsRead();
-
-    bool m_optionalArgumentsRead;
-    QString m_progId;
+    Operation *clone() const;
 };
 
 }

@@ -117,6 +117,7 @@ Q_SIGNALS:
     void error(QProcess::ProcessError);
     void readyReadStandardOutput();
     void readyReadStandardError();
+    void finished(int exitCode);
     void finished(int exitCode, QProcess::ExitStatus exitStatus);
     void readyRead();
     void started();

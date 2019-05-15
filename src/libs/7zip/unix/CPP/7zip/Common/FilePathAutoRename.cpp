@@ -2,19 +2,19 @@
 
 #include "StdAfx.h"
 
-#include "../../Common/Defs.h"
-#include "../../Common/IntToString.h"
+#include "Common/Defs.h"
+#include "Common/IntToString.h"
 
-#include "../../Windows/FileFind.h"
+#include "Windows/FileFind.h"
 
 #include "FilePathAutoRename.h"
 
 using namespace NWindows;
 
-static bool MakeAutoName(const FString &name,
-    const FString &extension, unsigned value, FString &path)
+static bool MakeAutoName(const UString &name,
+    const UString &extension, unsigned value, UString &path)
 {
-  FChar number[16];
+  wchar_t number[16];
   ConvertUInt32ToString(value, number);
   path = name;
   path += number;
@@ -22,22 +22,22 @@ static bool MakeAutoName(const FString &name,
   return NFile::NFind::DoesFileOrDirExist(path);
 }
 
-bool AutoRenamePath(FString &fullProcessedPath)
+bool AutoRenamePath(UString &fullProcessedPath)
 {
-  FString path;
-  int dotPos = fullProcessedPath.ReverseFind(FTEXT('.'));
+  UString path;
+  int dotPos = fullProcessedPath.ReverseFind(L'.');
 
-  int slashPos = fullProcessedPath.ReverseFind(FTEXT('/'));
+  int slashPos = fullProcessedPath.ReverseFind(L'/');
   #ifdef _WIN32
-  int slash1Pos = fullProcessedPath.ReverseFind(FTEXT('\\'));
+  int slash1Pos = fullProcessedPath.ReverseFind(L'\\');
   slashPos = MyMax(slashPos, slash1Pos);
   #endif
 
-  FString name, extension;
+  UString name, extension;
   if (dotPos > slashPos && dotPos > 0)
   {
-    name.SetFrom(fullProcessedPath, dotPos);
-    extension = fullProcessedPath.Ptr(dotPos);
+    name = fullProcessedPath.Left(dotPos);
+    extension = fullProcessedPath.Mid(dotPos);
   }
   else
     name = fullProcessedPath;

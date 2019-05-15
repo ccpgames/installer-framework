@@ -31,8 +31,6 @@
 #include "protocol.h"
 #include "remoteclient.h"
 
-#include <QRegExp>
-
 namespace QInstaller {
 
 

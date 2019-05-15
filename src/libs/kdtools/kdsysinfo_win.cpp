@@ -26,7 +26,7 @@
 **
 ****************************************************************************/
 
-#include "sysinfo.h"
+#include "kdsysinfo.h"
 
 #include <QLibrary>
 #include <QStringList>

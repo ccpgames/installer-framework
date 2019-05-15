@@ -29,7 +29,7 @@
 #ifndef DOWNLOADARCHIVESJOB_H
 #define DOWNLOADARCHIVESJOB_H
 
-#include "job.h"
+#include <kdjob.h>
 
 #include <QtCore/QPair>
 
@@ -46,7 +46,7 @@ namespace QInstaller {
 class MessageBoxHandler;
 class PackageManagerCore;
 
-class DownloadArchivesJob : public Job
+class DownloadArchivesJob : public KDJob
 {
     Q_OBJECT
 

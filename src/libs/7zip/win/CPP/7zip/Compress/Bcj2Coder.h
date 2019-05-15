@@ -12,7 +12,7 @@
 namespace NCompress {
 namespace NBcj2 {
 
-const unsigned kNumMoveBits = 5;
+const int kNumMoveBits = 5;
 
 #ifndef EXTRACT_ONLY
 
@@ -20,15 +20,32 @@ class CEncoder:
   public ICompressCoder2,
   public CMyUnknownImp
 {
-  Byte *_buf;
+  Byte *_buffer;
+  bool Create();
 
   COutBuffer _mainStream;
   COutBuffer _callStream;
   COutBuffer _jumpStream;
-  NRangeCoder::CEncoder _rc;
-  NRangeCoder::CBitEncoder<kNumMoveBits> _statusEncoder[256 + 2];
+  NCompress::NRangeCoder::CEncoder _rangeEncoder;
+  NCompress::NRangeCoder::CBitEncoder<kNumMoveBits> _statusEncoder[256 + 2];
 
   HRESULT Flush();
+public:
+  void ReleaseStreams()
+  {
+    _mainStream.ReleaseStream();
+    _callStream.ReleaseStream();
+    _jumpStream.ReleaseStream();
+    _rangeEncoder.ReleaseStream();
+  }
+
+  class CCoderReleaser
+  {
+    CEncoder *_coder;
+  public:
+    CCoderReleaser(CEncoder *coder): _coder(coder) {}
+    ~CCoderReleaser() {  _coder->ReleaseStreams(); }
+  };
 
 public:
   MY_UNKNOWN_IMP
@@ -39,8 +56,7 @@ public:
   STDMETHOD(Code)(ISequentialInStream **inStreams, const UInt64 **inSizes, UInt32 numInStreams,
       ISequentialOutStream **outStreams, const UInt64 **outSizes, UInt32 numOutStreams,
       ICompressProgressInfo *progress);
-
-  CEncoder(): _buf(0) {};
+  CEncoder(): _buffer(0) {};
   ~CEncoder();
 };
 
@@ -51,19 +67,37 @@ class CDecoder:
   public ICompressSetBufSize,
   public CMyUnknownImp
 {
-  CInBuffer _mainStream;
+  CInBuffer _mainInStream;
   CInBuffer _callStream;
   CInBuffer _jumpStream;
-  NRangeCoder::CDecoder _rc;
-  NRangeCoder::CBitDecoder<kNumMoveBits> _statusDecoder[256 + 2];
+  NCompress::NRangeCoder::CDecoder _rangeDecoder;
+  NCompress::NRangeCoder::CBitDecoder<kNumMoveBits> _statusDecoder[256 + 2];
 
   COutBuffer _outStream;
   UInt32 _inBufSizes[4];
   UInt32 _outBufSize;
 
 public:
-  MY_UNKNOWN_IMP1(ICompressSetBufSize);
+  void ReleaseStreams()
+  {
+    _mainInStream.ReleaseStream();
+    _callStream.ReleaseStream();
+    _jumpStream.ReleaseStream();
+    _rangeDecoder.ReleaseStream();
+    _outStream.ReleaseStream();
+  }
 
+  HRESULT Flush() { return _outStream.Flush(); }
+  class CCoderReleaser
+  {
+    CDecoder *_coder;
+  public:
+    CCoderReleaser(CDecoder *coder): _coder(coder) {}
+    ~CCoderReleaser()  { _coder->ReleaseStreams(); }
+  };
+
+public:
+  MY_UNKNOWN_IMP1(ICompressSetBufSize);
   HRESULT CodeReal(ISequentialInStream **inStreams, const UInt64 **inSizes, UInt32 numInStreams,
       ISequentialOutStream **outStreams, const UInt64 **outSizes, UInt32 numOutStreams,
       ICompressProgressInfo *progress);
@@ -73,7 +107,6 @@ public:
 
   STDMETHOD(SetInBufSize)(UInt32 streamIndex, UInt32 size);
   STDMETHOD(SetOutBufSize)(UInt32 streamIndex, UInt32 size);
-
   CDecoder();
 };
 

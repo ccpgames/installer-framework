@@ -29,31 +29,30 @@
 #include "selfrestartoperation.h"
 #include "packagemanagercore.h"
 
-#include "selfrestarter.h"
+#include <kdselfrestarter.h>
 
 using namespace QInstaller;
 
-SelfRestartOperation::SelfRestartOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
+SelfRestartOperation::SelfRestartOperation()
 {
     setName(QLatin1String("SelfRestart"));
 }
 
 void SelfRestartOperation::backup()
 {
-    setValue(QLatin1String("PreviousSelfRestart"), SelfRestarter::restartOnQuit());
+    setValue(QLatin1String("PreviousSelfRestart"), KDSelfRestarter::restartOnQuit());
 }
 
 bool SelfRestartOperation::performOperation()
 {
-    PackageManagerCore *const core = packageManager();
+    PackageManagerCore *const core = value(QLatin1String("installer")).value<PackageManagerCore*>();
     if (!core) {
         setError(UserDefinedError);
-        setErrorString(tr("Installer object needed in operation %1 is empty.").arg(name()));
+        setErrorString(tr("Installer object needed in '%1' operation is empty.").arg(name()));
         return false;
     }
 
-    if (!core->isMaintainer()) {
+    if (!core->isUpdater() && !core->isPackageManager()) {
         setError(UserDefinedError);
         setErrorString(tr("Self Restart: Only valid within updater or packagemanager mode."));
         return false;
@@ -64,17 +63,22 @@ bool SelfRestartOperation::performOperation()
         setErrorString(tr("Self Restart: Invalid arguments"));
         return false;
     }
-    SelfRestarter::setRestartOnQuit(true);
-    return SelfRestarter::restartOnQuit();
+    KDSelfRestarter::setRestartOnQuit(true);
+    return KDSelfRestarter::restartOnQuit();
 }
 
 bool SelfRestartOperation::undoOperation()
 {
-    SelfRestarter::setRestartOnQuit(value(QLatin1String("PreviousSelfRestart")).toBool());
+    KDSelfRestarter::setRestartOnQuit(value(QLatin1String("PreviousSelfRestart")).toBool());
     return true;
 }
 
 bool SelfRestartOperation::testOperation()
 {
     return true;
+}
+
+Operation *SelfRestartOperation::clone() const
+{
+    return new SelfRestartOperation();
 }

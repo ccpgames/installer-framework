@@ -51,6 +51,7 @@ public:
 
     void setGui(QInstaller::PackageManagerGui *gui);
     void setManager(QInstaller::PackageManagerCore *core);
+    void setManagerParams(const QHash<QString, QString> &params);
 
     void setControlScript(const QString &script);
 

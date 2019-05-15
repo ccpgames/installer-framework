@@ -7,9 +7,9 @@
 #include "../ICoder.h"
 #include "../IPassword.h"
 
-#define MY_QUERYINTERFACE_ENTRY_AG(i, sub0, sub) else if (iid == IID_ ## i) \
-  { if (!sub) RINOK(sub0->QueryInterface(IID_ ## i, (void **)&sub)) \
-    *outObject = (void *)(i *)this; }
+#define MY_QUERYINTERFACE_ENTRY_AG(i, sub0, sub) if (iid == IID_ ## i) \
+{ if (!sub) RINOK(sub0->QueryInterface(IID_ ## i, (void **)&sub)) \
+*outObject = (void *)(i *)this; AddRef(); return S_OK; }
 
 class CFilterCoder:
   public ICompressCoder,
@@ -21,7 +21,6 @@ class CFilterCoder:
 
   #ifndef _NO_CRYPTO
   public ICryptoSetPassword,
-  public ICryptoProperties,
   #endif
   #ifndef EXTRACT_ONLY
   public ICompressSetCoderProperties,
@@ -43,20 +42,14 @@ protected:
   UInt64 _outSize;
   UInt64 _nowPos64;
 
-  void Init2()
+  HRESULT Init()
   {
     _nowPos64 = 0;
     _outSizeIsDefined = false;
-  }
-
-  HRESULT Init()
-  {
-    Init2();
     return Filter->Init();
   }
 
   CMyComPtr<ICryptoSetPassword> _setPassword;
-  CMyComPtr<ICryptoProperties> _cryptoProperties;
   #ifndef EXTRACT_ONLY
   CMyComPtr<ICompressSetCoderProperties> _SetCoderProperties;
   CMyComPtr<ICompressWriteCoderProperties> _writeCoderProperties;
@@ -81,7 +74,6 @@ public:
 
     #ifndef _NO_CRYPTO
     MY_QUERYINTERFACE_ENTRY_AG(ICryptoSetPassword, Filter, _setPassword)
-    MY_QUERYINTERFACE_ENTRY_AG(ICryptoProperties, Filter, _cryptoProperties)
     #endif
 
     #ifndef EXTRACT_ONLY
@@ -106,9 +98,6 @@ public:
 
   #ifndef _NO_CRYPTO
   STDMETHOD(CryptoSetPassword)(const Byte *data, UInt32 size);
-
-  STDMETHOD(SetKey)(const Byte *data, UInt32 size);
-  STDMETHOD(SetInitVector)(const Byte *data, UInt32 size);
   #endif
   #ifndef EXTRACT_ONLY
   STDMETHOD(SetCoderProperties)(const PROPID *propIDs,
@@ -118,9 +107,6 @@ public:
   STDMETHOD(ResetInitVector)();
   #endif
   STDMETHOD(SetDecoderProperties2)(const Byte *data, UInt32 size);
-
-  void SetInStream_NoSubFilterInit(ISequentialInStream *inStream);
-
 };
 
 class CInStreamReleaser

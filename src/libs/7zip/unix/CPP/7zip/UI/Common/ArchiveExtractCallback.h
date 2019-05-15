@@ -3,8 +3,8 @@
 #ifndef __ARCHIVE_EXTRACT_CALLBACK_H
 #define __ARCHIVE_EXTRACT_CALLBACK_H
 
-#include "../../../Common/MyCom.h"
-#include "../../../Common/Wildcard.h"
+#include "Common/MyCom.h"
+#include "Common/Wildcard.h"
 
 #include "../../IPassword.h"
 
@@ -13,116 +13,11 @@
 
 #include "../../Archive/IArchive.h"
 
+#include "../../Archive/Common/OutStreamWithCRC.h"
+
 #include "ExtractMode.h"
 #include "IFileExtractCallback.h"
 #include "OpenArchive.h"
-
-#include "HashCalc.h"
-
-#ifndef _SFX
-
-class COutStreamWithHash:
-  public ISequentialOutStream,
-  public CMyUnknownImp
-{
-  CMyComPtr<ISequentialOutStream> _stream;
-  UInt64 _size;
-  bool _calculate;
-public:
-  IHashCalc *_hash;
-
-  MY_UNKNOWN_IMP
-  STDMETHOD(Write)(const void *data, UInt32 size, UInt32 *processedSize);
-  void SetStream(ISequentialOutStream *stream) { _stream = stream; }
-  void ReleaseStream() { _stream.Release(); }
-  void Init(bool calculate = true)
-  {
-    InitCRC();
-    _size = 0;
-    _calculate = calculate;
-  }
-  void EnableCalc(bool calculate) { _calculate = calculate; }
-  void InitCRC() { _hash->InitForNewFile(); }
-  UInt64 GetSize() const { return _size; }
-};
-
-#endif
-
-struct CExtractNtOptions
-{
-  CBoolPair NtSecurity;
-  CBoolPair SymLinks;
-  CBoolPair HardLinks;
-  CBoolPair AltStreams;
-  bool ReplaceColonForAltStream;
-  bool WriteToAltStreamIfColon;
-
-  CExtractNtOptions():
-      ReplaceColonForAltStream(false),
-      WriteToAltStreamIfColon(false)
-  {
-    SymLinks.Val = true;
-    HardLinks.Val = true;
-    AltStreams.Val = true;
-  }
-};
-
-#ifndef _SFX
-
-class CGetProp:
-  public IGetProp,
-  public CMyUnknownImp
-{
-public:
-  const CArc *Arc;
-  UInt32 IndexInArc;
-  UString Name; // relative path
-
-  MY_UNKNOWN_IMP1(IGetProp)
-  INTERFACE_IGetProp(;)
-};
-
-#endif
-
-#ifndef _SFX
-#ifndef UNDER_CE
-
-// FIXME #define SUPPORT_LINKS
-
-#endif
-#endif
-
-
-#ifdef SUPPORT_LINKS
-
-struct CHardLinkNode
-{
-  UInt64 StreamId;
-  UInt64 INode;
-
-  int Compare(const CHardLinkNode &a) const;
-};
-
-class CHardLinks
-{
-public:
-  CRecordVector<CHardLinkNode> IDs;
-  CObjectVector<FString> Links;
-
-  void Clear()
-  {
-    IDs.Clear();
-    Links.Clear();
-  }
-
-  void PrepareLinks()
-  {
-    while (Links.Size() < IDs.Size())
-      Links.AddNew();
-  }
-};
-
-#endif
 
 class CArchiveExtractCallback:
   public IArchiveExtractCallback,
@@ -132,30 +27,18 @@ class CArchiveExtractCallback:
   public CMyUnknownImp
 {
   const CArc *_arc;
-  CExtractNtOptions _ntOptions;
-
   const NWildcard::CCensorNode *_wildcardCensor;
   CMyComPtr<IFolderArchiveExtractCallback> _extractCallback2;
   CMyComPtr<ICompressProgressInfo> _compressProgress;
   CMyComPtr<ICryptoGetTextPassword> _cryptoGetTextPassword;
-  FString _directoryPath;
-  FString _directoryPathFull;
+  UString _directoryPath;
   NExtract::NPathMode::EEnum _pathMode;
   NExtract::NOverwriteMode::EEnum _overwriteMode;
 
-  #ifndef _SFX
-
-  CMyComPtr<IFolderExtractToStreamCallback> ExtractToStreamCallback;
-  CGetProp *GetProp_Spec;
-  CMyComPtr<IGetProp> GetProp;
-
-  #endif
-
-  FString _diskFilePath;
+  UString _diskFilePath;
   UString _filePath;
   UInt64 _position;
   bool _isSplit;
-  bool _isAltStream;
 
   bool _extractMode;
 
@@ -171,7 +54,7 @@ class CArchiveExtractCallback:
     FILETIME ATime;
     FILETIME MTime;
     UInt32 Attrib;
-
+  
     bool CTimeDefined;
     bool ATimeDefined;
     bool MTimeDefined;
@@ -186,39 +69,23 @@ class CArchiveExtractCallback:
   COutFileStream *_outFileStreamSpec;
   CMyComPtr<ISequentialOutStream> _outFileStream;
 
-  #ifndef _SFX
-
-  COutStreamWithHash *_hashStreamSpec;
-  CMyComPtr<ISequentialOutStream> _hashStream;
-  bool _hashStreamWasUsed;
-
-  #endif
+  COutStreamWithCRC *_crcStreamSpec;
+  CMyComPtr<ISequentialOutStream> _crcStream;
 
   UStringVector _removePathParts;
-  bool _use_baseParentFolder_mode;
-  UInt32 _baseParentFolder;
 
   bool _stdOutMode;
   bool _testMode;
+  bool _crcMode;
   bool _multiArchives;
 
   CMyComPtr<ICompressProgressInfo> _localProgress;
   UInt64 _packTotal;
   UInt64 _unpTotal;
 
-  FStringVector _extractedFolderPaths;
-  CRecordVector<UInt32> _extractedFolderIndices;
-
-  #if defined(_WIN32) && !defined(UNDER_CE) && !defined(_SFX)
-  bool _saclEnabled;
-  #endif
-
-  void CreateComplexDirectory(const UStringVector &dirPathParts, FString &fullPath);
+  void CreateComplexDirectory(const UStringVector &dirPathParts, UString &fullPath);
   HRESULT GetTime(int index, PROPID propID, FILETIME &filetime, bool &filetimeIsDefined);
   HRESULT GetUnpackSize();
-
-  HRESULT SendMessageError(const char *message, const FString &path);
-  HRESULT SendMessageError2(const char *message, const FString &path1, const FString &path2);
 
 public:
 
@@ -226,10 +93,9 @@ public:
 
   UInt64 NumFolders;
   UInt64 NumFiles;
-  UInt64 NumAltStreams;
   UInt64 UnpackSize;
-  UInt64 AltStreams_UnpackSize;
-
+  UInt32 CrcSum;
+  
   MY_UNKNOWN_IMP2(ICryptoGetTextPassword, ICompressProgressInfo)
   // COM_INTERFACE_ENTRY(IArchiveVolumeExtractCallback)
 
@@ -242,7 +108,15 @@ public:
 
   STDMETHOD(CryptoGetTextPassword)(BSTR *password);
 
-  CArchiveExtractCallback();
+  CArchiveExtractCallback():
+      WriteCTime(true),
+      WriteATime(true),
+      WriteMTime(true),
+      _multiArchives(false)
+  {
+    LocalProgressSpec = new CLocalProgress();
+    _localProgress = LocalProgressSpec;
+  }
 
   void InitForMulti(bool multiArchives,
       NExtract::NPathMode::EEnum pathMode,
@@ -251,49 +125,19 @@ public:
     _multiArchives = multiArchives;
     _pathMode = pathMode;
     _overwriteMode = overwriteMode;
-    NumFolders = NumFiles = NumAltStreams = UnpackSize = AltStreams_UnpackSize = 0;
+    NumFolders = NumFiles = UnpackSize = 0;
+    CrcSum = 0;
   }
-
-  #ifndef _SFX
-
-  void SetHashMethods(IHashCalc *hash)
-  {
-    if (!hash)
-      return;
-    _hashStreamSpec = new COutStreamWithHash;
-    _hashStream = _hashStreamSpec;
-    _hashStreamSpec->_hash = hash;
-  }
-
-  #endif
 
   void Init(
-      const CExtractNtOptions &ntOptions,
       const NWildcard::CCensorNode *wildcardCensor,
       const CArc *arc,
       IFolderArchiveExtractCallback *extractCallback2,
-      bool stdOutMode, bool testMode,
-      const FString &directoryPath,
+      bool stdOutMode, bool testMode, bool crcMode,
+      const UString &directoryPath,
       const UStringVector &removePathParts,
       UInt64 packSize);
 
-  #ifdef SUPPORT_LINKS
-private:
-  CHardLinks _hardLinks;
-public:
-  // call PrepareHardLinks() after Init()
-  HRESULT PrepareHardLinks(const CRecordVector<UInt32> *realIndices);  // NULL means all items
-  #endif
-
-  // call it after Init()
-
-  void SetBaseParentFolderIndex(UInt32 indexInArc)
-  {
-    _use_baseParentFolder_mode = true;
-    _baseParentFolder = indexInArc;
-  }
-
-  HRESULT SetDirsTimes();
 };
 
 #endif

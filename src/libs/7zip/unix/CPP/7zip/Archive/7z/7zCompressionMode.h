@@ -3,18 +3,19 @@
 #ifndef __7Z_COMPRESSION_MODE_H
 #define __7Z_COMPRESSION_MODE_H
 
-#include "../../Common/MethodId.h"
+#include "../../../Common/MyString.h"
+
+#include "../../../Windows/PropVariant.h"
+
 #include "../../Common/MethodProps.h"
 
 namespace NArchive {
 namespace N7z {
 
-struct CMethodFull: public CProps
+struct CMethodFull: public CMethod
 {
-  CMethodId Id;
   UInt32 NumInStreams;
   UInt32 NumOutStreams;
-
   bool IsSimpleCoder() const { return (NumInStreams == 1) && (NumOutStreams == 1); }
 };
 

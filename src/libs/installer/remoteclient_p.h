@@ -59,7 +59,6 @@ public:
         , m_active(false)
         , m_key(QLatin1String(Protocol::DefaultAuthorizationKey))
         , m_mode(Protocol::Mode::Debug)
-        , m_authorizationFallbackDisabled(false)
     {
         m_thread.setObjectName(QLatin1String("KeepAlive"));
     }
@@ -102,11 +101,6 @@ public:
         }
     }
 
-    void setAuthorizationFallbackDisabled(bool disabled)
-    {
-        m_authorizationFallbackDisabled = disabled;
-    }
-
     void maybeStartServer() {
         if (m_mode == Protocol::Mode::Debug)
             m_serverStarted = true; // we expect the server to be started by the developer
@@ -124,39 +118,23 @@ public:
             started = AdminAuthorization::execute(0, m_serverCommand, m_serverArguments);
 
             if (!started) {
-                if (m_authorizationFallbackDisabled) {
-                    QMessageBox::Button res = QMessageBox::Retry;
-                    while (res == QMessageBox::Retry && !started) {
-                        res = MessageBoxHandler::critical(MessageBoxHandler::currentBestSuitParent(),
-                            QLatin1String("AuthorizationError"),
-                            QCoreApplication::translate("RemoteClient", "Cannot get authorization."),
-                            QCoreApplication::translate("RemoteClient",
-                                "Cannot get authorization that is needed for continuing the installation.\n\n"
-                                "Please start the setup program as a user with the appropriate rights.\n"
-                                "Or accept the elevation of access rights if being asked."),
-                                QMessageBox::Abort | QMessageBox::Retry, QMessageBox::Retry);
-                        if (res == QMessageBox::Retry)
-                            started = AdminAuthorization::execute(0, m_serverCommand, m_serverArguments);
-                    }
-                } else {
-                    // something went wrong with authorizing, either user pressed cancel or entered
-                    // wrong password
-                    const QString fallback = m_serverCommand + QLatin1String(" ") + m_serverArguments
-                        .join(QLatin1String(" "));
+                // something went wrong with authorizing, either user pressed cancel or entered
+                // wrong password
+                const QString fallback = m_serverCommand + QLatin1String(" ") + m_serverArguments
+                    .join(QLatin1String(" "));
 
-                    const QMessageBox::Button res =
-                        MessageBoxHandler::critical(MessageBoxHandler::currentBestSuitParent(),
-                        QLatin1String("AuthorizationError"),
-                        QCoreApplication::translate("RemoteClient", "Cannot get authorization."),
-                        QCoreApplication::translate("RemoteClient", "Cannot get authorization that "
-                            "is needed for continuing the installation.\n Either abort the "
-                            "installation or use the fallback solution by running\n\n%1\n\nas a user "
-                            "with the appropriate rights and then clicking OK.").arg(fallback),
-                        QMessageBox::Abort | QMessageBox::Ok, QMessageBox::Ok);
+                const QMessageBox::Button res =
+                    MessageBoxHandler::critical(MessageBoxHandler::currentBestSuitParent(),
+                    QLatin1String("AuthorizationError"),
+                    QCoreApplication::translate("RemoteClient", "Could not get authorization."),
+                    QCoreApplication::translate("RemoteClient", "Could not get authorization that "
+                        "is needed for continuing the installation.\n Either abort the "
+                        "installation or use the fallback solution by running\n\n%1\n\nas root "
+                        "and then clicking OK.").arg(fallback),
+                    QMessageBox::Abort | QMessageBox::Ok, QMessageBox::Ok);
 
-                    if (res == QMessageBox::Ok)
-                        started = true;
-                }
+                if (res == QMessageBox::Ok)
+                    started = true;
             }
         } else {
             started = QInstaller::startDetached(m_serverCommand, m_serverArguments,
@@ -201,7 +179,6 @@ private:
     QString m_key;
     QThread m_thread;
     Protocol::Mode m_mode;
-    bool m_authorizationFallbackDisabled;
 };
 
 } // namespace QInstaller

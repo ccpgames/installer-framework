@@ -4,30 +4,28 @@
 #define __EXTRACT_MODE_H
 
 namespace NExtract {
-
-namespace NPathMode
-{
-  enum EEnum
+  
+  namespace NPathMode
   {
-    kFullPaths,
-    kCurPaths,
-    kNoPaths,
-    kAbsPaths
-  };
-}
-
-namespace NOverwriteMode
-{
-  enum EEnum
+    enum EEnum
+    {
+      kFullPathnames,
+      kCurrentPathnames,
+      kNoPathnames
+    };
+  }
+  
+  namespace NOverwriteMode
   {
-    kAsk,
-    kOverwrite,
-    kSkip,
-    kRename,
-    kRenameExisting
-  };
-}
-
+    enum EEnum
+    {
+      kAskBefore,
+      kWithoutPrompt,
+      kSkipExisting,
+      kAutoRename,
+      kAutoRenameExisting
+    };
+  }
 }
 
 #endif

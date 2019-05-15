@@ -4,18 +4,16 @@
 
 #include "../../../C/7zCrc.h"
 
-#include "../../Common/Defs.h"
-
 #include "InOutTempBuffer.h"
 #include "StreamUtils.h"
 
 using namespace NWindows;
 using namespace NFile;
-using namespace NDir;
+using namespace NDirectory;
 
 static const UInt32 kTempBufSize = (1 << 20);
 
-static CFSTR kTempFilePrefixString = FTEXT("7zt");
+static LPCTSTR kTempFilePrefixString = TEXT("7zt");
 
 CInOutTempBuffer::CInOutTempBuffer(): _buf(NULL) { }
 
@@ -44,7 +42,12 @@ bool CInOutTempBuffer::WriteToFile(const void *data, UInt32 size)
     return true;
   if (!_tempFileCreated)
   {
-    if (!_tempFile.CreateRandomInTempFolder(kTempFilePrefixString, &_outFile))
+    CSysString tempDirPath;
+    if (!MyGetTempPath(tempDirPath))
+      return false;
+    if (_tempFile.Create(tempDirPath, kTempFilePrefixString, _tempFileName) == 0)
+      return false;
+    if (!_outFile.Create(_tempFileName, true))
       return false;
     _tempFileCreated = true;
   }
@@ -88,7 +91,7 @@ HRESULT CInOutTempBuffer::WriteToStream(ISequentialOutStream *stream)
   if (_tempFileCreated)
   {
     NIO::CInFile inFile;
-    if (!inFile.Open(_tempFile.GetPath()))
+    if (!inFile.Open(_tempFileName))
       return E_FAIL;
     while (size < _size)
     {

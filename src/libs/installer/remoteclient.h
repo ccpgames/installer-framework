@@ -47,10 +47,8 @@ public:
     static RemoteClient &instance();
     void init(const QString &socketName, const QString &key, Protocol::Mode mode,
               Protocol::StartAs startAs);
-    void setAuthorizationFallbackDisabled(bool disabled);
 
     void shutdown();
-    void destroy();
 
     QString socketName() const;
     QString authorizationKey() const;
@@ -63,7 +61,6 @@ private:
     ~RemoteClient();
 
 private:
-    static RemoteClient *s_instance;
     QScopedPointer<RemoteClientPrivate> d_ptr;
 };
 

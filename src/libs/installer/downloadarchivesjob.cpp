@@ -33,8 +33,8 @@
 #include "packagemanagercore.h"
 #include "utils.h"
 
-#include "filedownloader.h"
-#include "filedownloaderfactory.h"
+#include "kdupdaterfiledownloader.h"
+#include "kdupdaterfiledownloaderfactory.h"
 
 #include <QtCore/QFile>
 #include <QtCore/QTimerEvent>
@@ -47,9 +47,9 @@ using namespace KDUpdater;
     Creates a new DownloadArchivesJob with \a parent.
 */
 DownloadArchivesJob::DownloadArchivesJob(PackageManagerCore *core)
-    : Job(core)
+    : KDJob(core)
     , m_core(core)
-    , m_downloader(nullptr)
+    , m_downloader(0)
     , m_archivesDownloaded(0)
     , m_archivesToDownloadCount(0)
     , m_canceled(false)
@@ -93,7 +93,7 @@ void DownloadArchivesJob::doStart()
 void DownloadArchivesJob::doCancel()
 {
     m_canceled = true;
-    if (m_downloader != nullptr)
+    if (m_downloader != 0)
         m_downloader->cancelDownload();
 }
 
@@ -120,8 +120,8 @@ void DownloadArchivesJob::fetchNextArchiveHash()
             return;
         }
 
-        connect(m_downloader, &FileDownloader::downloadCompleted,
-                this, &DownloadArchivesJob::finishedHashDownload, Qt::QueuedConnection);
+        connect(m_downloader, SIGNAL(downloadCompleted()), this, SLOT(finishedHashDownload()),
+            Qt::QueuedConnection);
         m_downloader->download();
     } else {
         QMetaObject::invokeMethod(this, "fetchNextArchive", Qt::QueuedConnection);
@@ -130,7 +130,7 @@ void DownloadArchivesJob::fetchNextArchiveHash()
 
 void DownloadArchivesJob::finishedHashDownload()
 {
-    Q_ASSERT(m_downloader != nullptr);
+    Q_ASSERT(m_downloader != 0);
 
     QFile sha1HashFile(m_downloader->downloadedFileName());
     if (sha1HashFile.open(QFile::ReadOnly)) {
@@ -156,10 +156,10 @@ void DownloadArchivesJob::fetchNextArchive()
         return;
     }
 
-    if (m_downloader != nullptr)
+    if (m_downloader != 0)
         m_downloader->deleteLater();
 
-    m_downloader = setupDownloader(QString(), m_core->value(scUrlQueryString));
+    m_downloader = setupDownloader(QString(), m_core->value(QLatin1String("UrlQueryString")));
     if (!m_downloader) {
         m_archivesToDownload.removeFirst();
         QMetaObject::invokeMethod(this, "fetchNextArchiveHash", Qt::QueuedConnection);
@@ -168,8 +168,7 @@ void DownloadArchivesJob::fetchNextArchive()
 
     emit progressChanged(double(m_archivesDownloaded) / m_archivesToDownloadCount);
     connect(m_downloader, SIGNAL(downloadProgress(double)), this, SLOT(emitDownloadProgress(double)));
-    connect(m_downloader, &FileDownloader::downloadCompleted,
-            this, &DownloadArchivesJob::registerFile, Qt::QueuedConnection);
+    connect(m_downloader, SIGNAL(downloadCompleted()), this, SLOT(registerFile()), Qt::QueuedConnection);
 
     m_downloader->download();
 }
@@ -202,7 +201,7 @@ void DownloadArchivesJob::timerEvent(QTimerEvent *event)
 */
 void DownloadArchivesJob::registerFile()
 {
-    Q_ASSERT(m_downloader != nullptr);
+    Q_ASSERT(m_downloader != 0);
 
     if (m_canceled)
         return;
@@ -216,7 +215,7 @@ void DownloadArchivesJob::registerFile()
             QMessageBox::Retry | QMessageBox::Cancel, QMessageBox::Cancel);
 
         if (res == QMessageBox::Cancel) {
-            finishWithError(tr("Cannot verify Hash"));
+            finishWithError(tr("Could not verify Hash"));
             return;
         }
     } else {
@@ -236,7 +235,7 @@ void DownloadArchivesJob::registerFile()
 
 void DownloadArchivesJob::downloadCanceled()
 {
-    emitFinishedWithError(Job::Canceled, m_downloader->errorString());
+    emitFinishedWithError(KDJob::Canceled, m_downloader->errorString());
 }
 
 void DownloadArchivesJob::downloadFailed(const QString &error)
@@ -246,7 +245,7 @@ void DownloadArchivesJob::downloadFailed(const QString &error)
 
     const QMessageBox::StandardButton b =
         MessageBoxHandler::critical(MessageBoxHandler::currentBestSuitParent(),
-        QLatin1String("archiveDownloadError"), tr("Download Error"), tr("Cannot download archive %1: %2")
+        QLatin1String("archiveDownloadError"), tr("Download Error"), tr("Could not download archive: %1 : %2")
         .arg(m_archivesToDownload.first().second, error), QMessageBox::Retry | QMessageBox::Cancel);
 
     if (b == QMessageBox::Retry)
@@ -258,8 +257,8 @@ void DownloadArchivesJob::downloadFailed(const QString &error)
 void DownloadArchivesJob::finishWithError(const QString &error)
 {
     const FileDownloader *const dl = qobject_cast<const FileDownloader*> (sender());
-    const QString msg = tr("Cannot fetch archives: %1\nError while loading %2");
-    if (dl != nullptr)
+    const QString msg = tr("Could not fetch archives: %1\nError while loading %2");
+    if (dl != 0)
         emitFinishedWithError(QInstaller::DownloadError, msg.arg(error, dl->url().toString()));
     else
         emitFinishedWithError(QInstaller::DownloadError, msg.arg(error, m_downloader->url().toString()));
@@ -267,9 +266,9 @@ void DownloadArchivesJob::finishWithError(const QString &error)
 
 KDUpdater::FileDownloader *DownloadArchivesJob::setupDownloader(const QString &suffix, const QString &queryString)
 {
-    KDUpdater::FileDownloader *downloader = nullptr;
+    KDUpdater::FileDownloader *downloader = 0;
     const QFileInfo fi = QFileInfo(m_archivesToDownload.first().first);
-    const Component *const component = m_core->componentByName(PackageManagerCore::checkableName(QFileInfo(fi.path()).fileName()));
+    const Component *const component = m_core->componentByName(QFileInfo(fi.path()).fileName());
     if (component) {
         QString fullQueryString;
         if (!queryString.isEmpty())
@@ -287,23 +286,24 @@ KDUpdater::FileDownloader *DownloadArchivesJob::setupDownloader(const QString &s
             auth.setPassword(component->value(QLatin1String("password")));
             downloader->setAuthenticator(auth);
 
-            connect(downloader, &FileDownloader::downloadCanceled, this, &DownloadArchivesJob::downloadCanceled);
-            connect(downloader, &FileDownloader::downloadAborted, this, &DownloadArchivesJob::downloadFailed,
+            connect(downloader, SIGNAL(downloadCanceled()), this, SLOT(downloadCanceled()));
+            connect(downloader, SIGNAL(downloadAborted(QString)), this, SLOT(downloadFailed(QString)),
                 Qt::QueuedConnection);
-            connect(downloader, &FileDownloader::downloadStatus, this, &DownloadArchivesJob::downloadStatusChanged);
+            connect(downloader, SIGNAL(downloadStatus(QString)), this, SIGNAL(downloadStatusChanged(QString)));
 
             if (FileDownloaderFactory::isSupportedScheme(scheme)) {
                 downloader->setDownloadedFileName(component->localTempPath() + QLatin1Char('/')
                     + component->name() + QLatin1Char('/') + fi.fileName() + suffix);
             }
 
-            emit outputTextChanged(tr("Downloading archive \"%1\" for component %2.")
+            emit outputTextChanged(tr("Downloading archive '%1' for component: %2")
                 .arg(fi.fileName() + suffix, component->displayName()));
         } else {
-            emit outputTextChanged(tr("Scheme %1 not supported (URL: %2).").arg(scheme, url.toString()));
+            emit outputTextChanged(tr("Scheme not supported: %1 (%2)").arg(scheme, url.toString()));
         }
     } else {
-        emit outputTextChanged(tr("Cannot find component for %1.").arg(QFileInfo(fi.path()).fileName()));
+        emit outputTextChanged(tr("Could not find component for: %1.").arg(QFileInfo(fi.path())
+            .fileName()));
     }
     return downloader;
 }

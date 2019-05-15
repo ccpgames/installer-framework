@@ -39,10 +39,8 @@
 #include "utils.h"
 #include "scriptengine.h"
 #include "productkeycheck.h"
-#include "repositorycategory.h"
-#include "componentselectionpage_p.h"
 
-#include "sysinfo.h"
+#include "kdsysinfo.h"
 
 #include <QApplication>
 
@@ -51,13 +49,12 @@
 #include <QtCore/QProcess>
 #include <QtCore/QTimer>
 
-#include <QAbstractItemView>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -66,14 +63,10 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRadioButton>
-#include <QStringListModel>
 #include <QTextBrowser>
-
+#include <QTreeView>
 #include <QVBoxLayout>
 #include <QShowEvent>
-#include <QFileDialog>
-#include <QGroupBox>
-#include <QDesktopWidget>
 
 #ifdef Q_OS_WIN
 # include <qt_windows.h>
@@ -95,7 +88,7 @@ class DynamicInstallerPage : public PackageManagerPage
     Q_PROPERTY(bool complete READ isComplete WRITE setComplete)
 
 public:
-    explicit DynamicInstallerPage(QWidget *widget, PackageManagerCore *core = nullptr)
+    explicit DynamicInstallerPage(QWidget *widget, PackageManagerCore *core = 0)
         : PackageManagerPage(core)
         , m_widget(widget)
     {
@@ -112,6 +105,7 @@ public:
         setLayout(new QVBoxLayout);
         layout()->addWidget(widget);
         layout()->setContentsMargins(0, 0, 0, 0);
+        layout()->addItem(new QSpacerItem(20, 20, QSizePolicy::Minimum, QSizePolicy::Expanding));
 
         addPageAndProperties(packageManagerCore()->controlScriptEngine());
         addPageAndProperties(packageManagerCore()->componentScriptEngine());
@@ -208,7 +202,6 @@ public:
         , m_modified(false)
         , m_autoSwitchPage(true)
         , m_showSettingsButton(false)
-        , m_silent(false)
     {
         m_wizardButtonTypes.insert(QWizard::BackButton, QLatin1String("QWizard::BackButton"));
         m_wizardButtonTypes.insert(QWizard::NextButton, QLatin1String("QWizard::NextButton"));
@@ -232,7 +225,6 @@ public:
     bool m_modified;
     bool m_autoSwitchPage;
     bool m_showSettingsButton;
-    bool m_silent;
     QHash<int, QWizardPage*> m_defaultPages;
     QHash<int, QString> m_defaultButtonText;
 
@@ -318,87 +310,61 @@ PackageManagerGui::PackageManagerGui(PackageManagerCore *core, QWidget *parent)
     if (!m_core->settings().wizardStyle().isEmpty())
         setWizardStyle(getStyle(m_core->settings().wizardStyle()));
 
-    // set custom stylesheet
-    const QString styleSheetFile = m_core->settings().styleSheet();
-    if (!styleSheetFile.isEmpty()) {
-        QFile sheet(styleSheetFile);
-        if (sheet.exists()) {
-            if (sheet.open(QIODevice::ReadOnly))
-                setStyleSheet(QString::fromLatin1(sheet.readAll()));
-            else
-                qWarning() << "The specified style sheet file can not be opened.";
-        } else {
-            qWarning() << "A style sheet file is specified, but it does not exist.";
-        }
-    }
-
     setOption(QWizard::NoBackButtonOnStartPage);
     setOption(QWizard::NoBackButtonOnLastPage);
 
-    connect(this, &QDialog::rejected, m_core, &PackageManagerCore::setCanceled);
-    connect(this, &PackageManagerGui::interrupted, m_core, &PackageManagerCore::interrupt);
+    connect(this, SIGNAL(rejected()), m_core, SLOT(setCanceled()));
+    connect(this, SIGNAL(interrupted()), m_core, SLOT(interrupt()));
 
     // both queued to show the finished page once everything is done
-    connect(m_core, &PackageManagerCore::installationFinished,
-            this, &PackageManagerGui::showFinishedPage,
+    connect(m_core, SIGNAL(installationFinished()), this, SLOT(showFinishedPage()),
         Qt::QueuedConnection);
-    connect(m_core, &PackageManagerCore::uninstallationFinished,
-            this, &PackageManagerGui::showFinishedPage,
+    connect(m_core, SIGNAL(uninstallationFinished()), this, SLOT(showFinishedPage()),
         Qt::QueuedConnection);
 
-    connect(this, &QWizard::currentIdChanged, this, &PackageManagerGui::currentPageChanged);
-    connect(this, &QWizard::currentIdChanged, m_core, &PackageManagerCore::currentPageChanged);
-    connect(button(QWizard::FinishButton), &QAbstractButton::clicked,
-            this, &PackageManagerGui::finishButtonClicked);
-    connect(button(QWizard::FinishButton), &QAbstractButton::clicked,
-            m_core, &PackageManagerCore::finishButtonClicked);
+    connect(this, SIGNAL(currentIdChanged(int)), this, SLOT(currentPageChanged(int)));
+    connect(this, SIGNAL(currentIdChanged(int)), m_core, SIGNAL(currentPageChanged(int)));
+    connect(button(QWizard::FinishButton), SIGNAL(clicked()), this, SIGNAL(finishButtonClicked()));
+    connect(button(QWizard::FinishButton), SIGNAL(clicked()), m_core, SIGNAL(finishButtonClicked()));
 
     // make sure the QUiLoader's retranslateUi is executed first, then the script
-    connect(this, &PackageManagerGui::languageChanged,
-            m_core, &PackageManagerCore::languageChanged, Qt::QueuedConnection);
-    connect(this, &PackageManagerGui::languageChanged,
-            this, &PackageManagerGui::onLanguageChanged, Qt::QueuedConnection);
+    connect(this, SIGNAL(languageChanged()), m_core, SLOT(languageChanged()), Qt::QueuedConnection);
+    connect(this, SIGNAL(languageChanged()), this, SLOT(onLanguageChanged()), Qt::QueuedConnection);
 
     connect(m_core,
-        &PackageManagerCore::wizardPageInsertionRequested,
-        this, &PackageManagerGui::wizardPageInsertionRequested);
-    connect(m_core, &PackageManagerCore::wizardPageRemovalRequested,
-            this, &PackageManagerGui::wizardPageRemovalRequested);
-    connect(m_core, &PackageManagerCore::wizardWidgetInsertionRequested,
-        this, &PackageManagerGui::wizardWidgetInsertionRequested);
-    connect(m_core, &PackageManagerCore::wizardWidgetRemovalRequested,
-            this, &PackageManagerGui::wizardWidgetRemovalRequested);
-    connect(m_core, &PackageManagerCore::wizardPageVisibilityChangeRequested,
-            this, &PackageManagerGui::wizardPageVisibilityChangeRequested, Qt::QueuedConnection);
+        SIGNAL(wizardPageInsertionRequested(QWidget*,QInstaller::PackageManagerCore::WizardPage)),
+        this, SLOT(wizardPageInsertionRequested(QWidget*,QInstaller::PackageManagerCore::WizardPage)));
+    connect(m_core, SIGNAL(wizardPageRemovalRequested(QWidget*)), this,
+        SLOT(wizardPageRemovalRequested(QWidget*)));
+    connect(m_core,
+        SIGNAL(wizardWidgetInsertionRequested(QWidget*,QInstaller::PackageManagerCore::WizardPage)),
+        this, SLOT(wizardWidgetInsertionRequested(QWidget*,QInstaller::PackageManagerCore::WizardPage)));
+    connect(m_core, SIGNAL(wizardWidgetRemovalRequested(QWidget*)), this,
+        SLOT(wizardWidgetRemovalRequested(QWidget*)));
+    connect(m_core, SIGNAL(wizardPageVisibilityChangeRequested(bool,int)), this,
+        SLOT(wizardPageVisibilityChangeRequested(bool,int)), Qt::QueuedConnection);
 
-    connect(m_core, &PackageManagerCore::setValidatorForCustomPageRequested,
-            this, &PackageManagerGui::setValidatorForCustomPageRequested);
+    connect(m_core,
+        SIGNAL(setValidatorForCustomPageRequested(QInstaller::Component*,QString,QString)), this,
+        SLOT(setValidatorForCustomPageRequested(QInstaller::Component*,QString,QString)));
 
-    connect(m_core, &PackageManagerCore::setAutomatedPageSwitchEnabled,
-            this, &PackageManagerGui::setAutomatedPageSwitchEnabled);
+    connect(m_core, SIGNAL(setAutomatedPageSwitchEnabled(bool)), this,
+        SLOT(setAutomatedPageSwitchEnabled(bool)));
 
-    connect(this, &QWizard::customButtonClicked, this, &PackageManagerGui::customButtonClicked);
+    connect(this, SIGNAL(customButtonClicked(int)), this, SLOT(customButtonClicked(int)));
 
     for (int i = QWizard::BackButton; i < QWizard::CustomButton1; ++i)
         d->m_defaultButtonText.insert(i, buttonText(QWizard::WizardButton(i)));
 
     m_core->setGuiObject(this);
-
-    // We need to create this ugly hack so that the installer doesn't exceed the maximum size of the
-    // screen. The screen size where the widget lies is not available until the widget is visible.
-    QTimer::singleShot(30, this, SLOT(setMaxSize()));
 }
 
-void PackageManagerGui::setMaxSize()
-{
-    setMaximumSize(qApp->desktop()->availableGeometry(this).size());
-}
 /*!
     Destructs a package manager UI.
 */
 PackageManagerGui::~PackageManagerGui()
 {
-    m_core->setGuiObject(nullptr);
+    m_core->setGuiObject(0);
     delete d;
 }
 
@@ -426,43 +392,6 @@ QWizard::WizardStyle PackageManagerGui::getStyle(const QString &name)
     if (name == QLatin1String("Aero"))
         return QWizard::AeroStyle;
     return QWizard::ModernStyle;
-}
-
-/*!
-   Hides the GUI when \a silent is \c true.
-*/
-void PackageManagerGui::setSilent(bool silent)
-{
-  d->m_silent = silent;
-  setVisible(!silent);
-}
-
-/*!
-    Returns the current silent state.
-*/
-bool PackageManagerGui::isSilent() const
-{
-  return d->m_silent;
-}
-
-/*!
-    Updates the model of \a object (which must be a QComboBox or
-    QAbstractItemView) such that it contains the given \a items.
-*/
-void PackageManagerGui::setTextItems(QObject *object, const QStringList &items)
-{
-    if (QComboBox *comboBox = qobject_cast<QComboBox*>(object)) {
-        comboBox->setModel(new QStringListModel(items));
-        return;
-    }
-
-    if (QAbstractItemView *view = qobject_cast<QAbstractItemView*>(object)) {
-        view->setModel(new QStringListModel(items));
-        return;
-    }
-
-    qDebug() << "Cannot set text items on object of type"
-             << object->metaObject()->className() << ".";
 }
 
 /*!
@@ -516,7 +445,7 @@ void PackageManagerGui::clickButton(int wb, int delay)
         wb = QWizard::CancelButton;
 
     if (QAbstractButton *b = button(static_cast<QWizard::WizardButton>(wb)))
-        QTimer::singleShot(delay, b, &QAbstractButton::click);
+        QTimer::singleShot(delay, b, SLOT(click()));
     else
         qWarning() << "Button with type: " << d->buttonType(wb) << "not found!";
 }
@@ -665,7 +594,7 @@ void PackageManagerGui::wizardPageInsertionRequested(QWidget *widget,
     wizardPageRemovalRequested(widget);
 
     int pageId = static_cast<int>(page) - 1;
-    while (QWizard::page(pageId) != nullptr)
+    while (QWizard::page(pageId) != 0)
         --pageId;
 
     // add it
@@ -679,7 +608,7 @@ void PackageManagerGui::wizardPageRemovalRequested(QWidget *widget)
 {
     foreach (int pageId, pageIds()) {
         DynamicInstallerPage *const dynamicPage = qobject_cast<DynamicInstallerPage*>(page(pageId));
-        if (dynamicPage == nullptr)
+        if (dynamicPage == 0)
             continue;
         if (dynamicPage->widget() != widget)
             continue;
@@ -710,7 +639,7 @@ void PackageManagerGui::wizardWidgetInsertionRequested(QWidget *widget,
 void PackageManagerGui::wizardWidgetRemovalRequested(QWidget *widget)
 {
     Q_ASSERT(widget);
-    widget->setParent(nullptr);
+    widget->setParent(0);
     packageManagerCore()->controlScriptEngine()->removeFromGlobalObject(widget);
     packageManagerCore()->componentScriptEngine()->removeFromGlobalObject(widget);
 }
@@ -721,9 +650,9 @@ void PackageManagerGui::wizardWidgetRemovalRequested(QWidget *widget)
 */
 void PackageManagerGui::wizardPageVisibilityChangeRequested(bool visible, int p)
 {
-    if (visible && page(p) == nullptr) {
+    if (visible && page(p) == 0) {
         setPage(p, d->m_defaultPages[p]);
-    } else if (!visible && page(p) != nullptr) {
+    } else if (!visible && page(p) != 0) {
         d->m_defaultPages[p] = page(p);
         removePage(p);
     }
@@ -753,7 +682,7 @@ QWidget *PackageManagerGui::pageByObjectName(const QString &name) const
             return p;
     }
     qWarning() << "No page found for object name" << name;
-    return nullptr;
+    return 0;
 }
 
 /*!
@@ -781,7 +710,7 @@ QWidget *PackageManagerGui::pageWidgetByObjectName(const QString &name) const
         return p;
     }
     qWarning() << "No page found for object name" << name;
-    return nullptr;
+    return 0;
 }
 
 /*!
@@ -809,13 +738,13 @@ void PackageManagerGui::cancelButtonClicked()
         question = tr("Do you want to quit the installer application?");
         if (m_core->isUninstaller())
             question = tr("Do you want to quit the uninstaller application?");
-        if (m_core->isMaintainer())
+        if (m_core->isUpdater() || m_core->isPackageManager())
             question = tr("Do you want to quit the maintenance application?");
     }
 
     const QMessageBox::StandardButton button =
         MessageBoxHandler::question(MessageBoxHandler::currentBestSuitParent(),
-        QLatin1String("cancelInstallation"), tr("%1 Question").arg(m_core->value(scTitle)), question,
+        QLatin1String("cancelInstallation"), tr("Question"), question,
         QMessageBox::Yes | QMessageBox::No);
 
     if (button == QMessageBox::Yes) {
@@ -855,6 +784,7 @@ void PackageManagerGui::setModified(bool value)
 */
 void PackageManagerGui::showFinishedPage()
 {
+    qDebug() << "SHOW FINISHED PAGE";
     if (d->m_autoSwitchPage)
         next();
     else
@@ -1057,7 +987,7 @@ PackageManagerPage::PackageManagerPage(PackageManagerCore *core)
     : m_complete(true)
     , m_needsSettingsButton(false)
     , m_core(core)
-    , validatorComponent(nullptr)
+    , validatorComponent(0)
 {
     if (!m_core->settings().titleColor().isEmpty()) {
         m_titleColor = m_core->settings().titleColor();
@@ -1093,17 +1023,7 @@ QPixmap PackageManagerPage::watermarkPixmap() const
 */
 QPixmap PackageManagerPage::bannerPixmap() const
 {
-    QPixmap banner(m_core->value(QLatin1String("BannerPixmap")));
-
-    if (!banner.isNull()) {
-        int width;
-        if (m_core->settings().containsValue(QLatin1String("WizardDefaultWidth")) )
-            width = m_core->settings().wizardDefaultWidth();
-        else
-            width = size().width();
-        banner = banner.scaledToWidth(width, Qt::SmoothTransformation);
-    }
-    return banner;
+    return QPixmap(m_core->value(QLatin1String("BannerPixmap")));
 }
 
 /*!
@@ -1192,8 +1112,8 @@ bool PackageManagerPage::validatePage()
 void PackageManagerPage::insertWidget(QWidget *widget, const QString &siblingName, int offset)
 {
     QWidget *sibling = findChild<QWidget *>(siblingName);
-    QWidget *parent = sibling ? sibling->parentWidget() : nullptr;
-    QLayout *layout = parent ? parent->layout() : nullptr;
+    QWidget *parent = sibling ? sibling->parentWidget() : 0;
+    QLayout *layout = parent ? parent->layout() : 0;
     QBoxLayout *blayout = qobject_cast<QBoxLayout *>(layout);
 
     if (blayout) {
@@ -1229,7 +1149,7 @@ int PackageManagerPage::nextId() const
 
         core->calculateComponentsToInstall();
         foreach (Component* component, core->orderedComponentsToInstall()) {
-            if (core->isMaintainer() && component->isInstalled())
+            if ((core->isPackageManager() || core->isUpdater()) && component->isInstalled())
                 continue; // package manager or updater, hide as long as the component is installed
 
             // The component is about to be installed and provides a license, so the page needs to
@@ -1264,13 +1184,13 @@ IntroductionPage::IntroductionPage(PackageManagerCore *core)
     : PackageManagerPage(core)
     , m_updatesFetched(false)
     , m_allPackagesFetched(false)
-    , m_label(nullptr)
-    , m_msgLabel(nullptr)
-    , m_errorLabel(nullptr)
-    , m_progressBar(nullptr)
-    , m_packageManager(nullptr)
-    , m_updateComponents(nullptr)
-    , m_removeAllComponents(nullptr)
+    , m_label(0)
+    , m_msgLabel(0)
+    , m_errorLabel(0)
+    , m_progressBar(0)
+    , m_packageManager(0)
+    , m_updateComponents(0)
+    , m_removeAllComponents(0)
 {
     setObjectName(QLatin1String("IntroductionPage"));
     setColoredTitle(tr("Setup - %1").arg(productName()));
@@ -1286,26 +1206,24 @@ IntroductionPage::IntroductionPage(PackageManagerCore *core)
     QWidget *widget = new QWidget(this);
     QVBoxLayout *boxLayout = new QVBoxLayout(widget);
 
-    m_packageManager = new QRadioButton(tr("&Add or remove components"), this);
+    m_packageManager = new QRadioButton(tr("Add or remove components"), this);
     m_packageManager->setObjectName(QLatin1String("PackageManagerRadioButton"));
     boxLayout->addWidget(m_packageManager);
     m_packageManager->setChecked(core->isPackageManager());
-    connect(m_packageManager, &QAbstractButton::toggled, this, &IntroductionPage::setPackageManager);
+    connect(m_packageManager, SIGNAL(toggled(bool)), this, SLOT(setPackageManager(bool)));
 
-    m_updateComponents = new QRadioButton(tr("&Update components"), this);
+    m_updateComponents = new QRadioButton(tr("Update components"), this);
     m_updateComponents->setObjectName(QLatin1String("UpdaterRadioButton"));
     boxLayout->addWidget(m_updateComponents);
     m_updateComponents->setChecked(core->isUpdater());
-    connect(m_updateComponents, &QAbstractButton::toggled, this, &IntroductionPage::setUpdater);
+    connect(m_updateComponents, SIGNAL(toggled(bool)), this, SLOT(setUpdater(bool)));
 
-    m_removeAllComponents = new QRadioButton(tr("&Remove all components"), this);
+    m_removeAllComponents = new QRadioButton(tr("Remove all components"), this);
     m_removeAllComponents->setObjectName(QLatin1String("UninstallerRadioButton"));
     boxLayout->addWidget(m_removeAllComponents);
     m_removeAllComponents->setChecked(core->isUninstaller());
-    connect(m_removeAllComponents, &QAbstractButton::toggled,
-            this, &IntroductionPage::setUninstaller);
-    connect(m_removeAllComponents, &QAbstractButton::toggled,
-            core, &PackageManagerCore::setCompleteUninstallation);
+    connect(m_removeAllComponents, SIGNAL(toggled(bool)), this, SLOT(setUninstaller(bool)));
+    connect(m_removeAllComponents, SIGNAL(toggled(bool)), core, SLOT(setCompleteUninstallation(bool)));
 
     boxLayout->addItem(new QSpacerItem(1, 1, QSizePolicy::Minimum, QSizePolicy::Expanding));
 
@@ -1333,21 +1251,18 @@ IntroductionPage::IntroductionPage(PackageManagerCore *core)
 
     core->setCompleteUninstallation(core->isUninstaller());
 
-    connect(core, &PackageManagerCore::metaJobProgress, this, &IntroductionPage::onProgressChanged);
-    connect(core, &PackageManagerCore::metaJobTotalProgress, this, &IntroductionPage::setTotalProgress);
-    connect(core, &PackageManagerCore::metaJobInfoMessage, this, &IntroductionPage::setMessage);
-    connect(core, &PackageManagerCore::coreNetworkSettingsChanged,
-            this, &IntroductionPage::onCoreNetworkSettingsChanged);
+    connect(core, SIGNAL(metaJobProgress(int)), this, SLOT(onProgressChanged(int)));
+    connect(core, SIGNAL(metaJobInfoMessage(QString)), this, SLOT(setMessage(QString)));
+    connect(core, SIGNAL(coreNetworkSettingsChanged()), this, SLOT(onCoreNetworkSettingsChanged()));
 
     m_updateComponents->setEnabled(ProductKeyCheck::instance()->hasValidKey());
 
 #ifdef Q_OS_WIN
     if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7) {
         m_taskButton = new QWinTaskbarButton(this);
-        connect(core, &PackageManagerCore::metaJobProgress,
-                m_taskButton->progress(), &QWinTaskbarProgress::setValue);
+        connect(core, SIGNAL(metaJobProgress(int)), m_taskButton->progress(), SLOT(setValue(int)));
     } else {
-        m_taskButton = nullptr;
+        m_taskButton = 0;
     }
 #endif
 }
@@ -1361,7 +1276,7 @@ int IntroductionPage::nextId() const
     if (packageManagerCore()->isUninstaller())
         return PackageManagerCore::ReadyForInstallation;
 
-    if (packageManagerCore()->isMaintainer())
+    if (packageManagerCore()->isUpdater() || packageManagerCore()->isPackageManager())
         return PackageManagerCore::ComponentSelection;
 
     return PackageManagerPage::nextId();
@@ -1386,7 +1301,8 @@ bool IntroductionPage::validatePage()
     }
 
     gui()->setSettingsButtonEnabled(false);
-    if (core->isMaintainer()) {
+    const bool maintenance = core->isUpdater() || core->isPackageManager();
+    if (maintenance) {
         showAll();
         setMaintenanceToolsEnabled(false);
     } else {
@@ -1447,7 +1363,7 @@ bool IntroductionPage::validatePage()
             setComplete(true);
     }
 
-    if (core->isMaintainer()) {
+    if (maintenance) {
         showMaintenanceTools();
         setMaintenanceToolsEnabled(true);
     } else {
@@ -1524,16 +1440,8 @@ void IntroductionPage::setMessage(const QString &msg)
 */
 void IntroductionPage::onProgressChanged(int progress)
 {
+    m_progressBar->setRange(0, 100);
     m_progressBar->setValue(progress);
-}
-
-/*!
-    Sets total \a progress value to progress bar.
-*/
-void IntroductionPage::setTotalProgress(int totalProgress)
-{
-    if (m_progressBar)
-        m_progressBar->setRange(0, totalProgress);
 }
 
 /*!
@@ -1632,12 +1540,12 @@ void IntroductionPage::entering()
     showWidgets(false);
     setMessage(QString());
     setErrorMessage(QString());
-    setButtonText(QWizard::CancelButton, tr("&Quit"));
+    setButtonText(QWizard::CancelButton, tr("Quit"));
 
     m_progressBar->setValue(0);
     m_progressBar->setRange(0, 0);
     PackageManagerCore *core = packageManagerCore();
-    if (core->isUninstaller() || core->isMaintainer()) {
+    if (core->isUninstaller() || core->isUpdater() || core->isPackageManager()) {
         showMaintenanceTools();
         setMaintenanceToolsEnabled(true);
     }
@@ -1727,19 +1635,19 @@ LicenseAgreementPage::LicenseAgreementPage(PackageManagerCore *core)
 
     m_licenseListWidget = new QListWidget(this);
     m_licenseListWidget->setObjectName(QLatin1String("LicenseListWidget"));
-    m_licenseListWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    connect(m_licenseListWidget, &QListWidget::currentItemChanged,
-        this, &LicenseAgreementPage::currentItemChanged);
+    m_licenseListWidget->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Expanding);
+    connect(m_licenseListWidget, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)),
+        this, SLOT(currentItemChanged(QListWidgetItem*)));
 
     m_textBrowser = new QTextBrowser(this);
     m_textBrowser->setReadOnly(true);
     m_textBrowser->setOpenLinks(false);
     m_textBrowser->setOpenExternalLinks(true);
     m_textBrowser->setObjectName(QLatin1String("LicenseTextBrowser"));
-    m_textBrowser->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    connect(m_textBrowser, &QTextBrowser::anchorClicked, this, &LicenseAgreementPage::openLicenseUrl);
+    m_textBrowser->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
+    connect(m_textBrowser, SIGNAL(anchorClicked(QUrl)), this, SLOT(openLicenseUrl(QUrl)));
 
-    QVBoxLayout *licenseBoxLayout = new QVBoxLayout();
+    QHBoxLayout *licenseBoxLayout = new QHBoxLayout();
     licenseBoxLayout->addWidget(m_licenseListWidget);
     licenseBoxLayout->addWidget(m_textBrowser);
 
@@ -1776,8 +1684,8 @@ LicenseAgreementPage::LicenseAgreementPage(PackageManagerCore *core)
     gridLayout->addWidget(m_rejectLabel, 1, 1);
     layout->addLayout(gridLayout);
 
-    connect(m_acceptRadioButton, &QAbstractButton::toggled, this, &QWizardPage::completeChanged);
-    connect(m_rejectRadioButton, &QAbstractButton::toggled, this, &QWizardPage::completeChanged);
+    connect(m_acceptRadioButton, SIGNAL(toggled(bool)), this, SIGNAL(completeChanged()));
+    connect(m_rejectRadioButton, SIGNAL(toggled(bool)), this, SIGNAL(completeChanged()));
 
     m_rejectRadioButton->setChecked(true);
 }
@@ -1850,13 +1758,219 @@ void LicenseAgreementPage::updateUi()
         acceptButtonText = tr("I accept the licenses.");
         rejectButtonText = tr("I do not accept the licenses.");
     }
-    m_licenseListWidget->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+
     setColoredSubTitle(subTitleText);
 
     m_acceptLabel->setText(acceptButtonText);
     m_rejectLabel->setText(rejectButtonText);
 
 }
+
+
+// -- ComponentSelectionPage::Private
+
+class ComponentSelectionPage::Private : public QObject
+{
+    Q_OBJECT
+
+public:
+    Private(ComponentSelectionPage *qq, PackageManagerCore *core)
+        : q(qq)
+        , m_core(core)
+        , m_treeView(new QTreeView(q))
+        , m_allModel(m_core->defaultComponentModel())
+        , m_updaterModel(m_core->updaterComponentModel())
+        , m_currentModel(m_allModel)
+    {
+        m_treeView->setObjectName(QLatin1String("ComponentsTreeView"));
+
+        connect(m_allModel, SIGNAL(checkStateChanged(QInstaller::ComponentModel::ModelState)), this,
+            SLOT(onModelStateChanged(QInstaller::ComponentModel::ModelState)));
+        connect(m_updaterModel, SIGNAL(checkStateChanged(QInstaller::ComponentModel::ModelState)),
+            this, SLOT(onModelStateChanged(QInstaller::ComponentModel::ModelState)));
+
+        QHBoxLayout *hlayout = new QHBoxLayout;
+        hlayout->addWidget(m_treeView, 3);
+
+        m_descriptionLabel = new QLabel(q);
+        m_descriptionLabel->setWordWrap(true);
+        m_descriptionLabel->setObjectName(QLatin1String("ComponentDescriptionLabel"));
+
+        QVBoxLayout *vlayout = new QVBoxLayout;
+        vlayout->addWidget(m_descriptionLabel);
+
+        m_sizeLabel = new QLabel(q);
+        m_sizeLabel->setWordWrap(true);
+        vlayout->addWidget(m_sizeLabel);
+        m_sizeLabel->setObjectName(QLatin1String("ComponentSizeLabel"));
+
+        vlayout->addSpacerItem(new QSpacerItem(1, 1, QSizePolicy::MinimumExpanding,
+            QSizePolicy::MinimumExpanding));
+        hlayout->addLayout(vlayout, 2);
+
+        QVBoxLayout *layout = new QVBoxLayout(q);
+        layout->addLayout(hlayout, 1);
+
+        m_checkDefault = new QPushButton;
+        connect(m_checkDefault, SIGNAL(clicked()), this, SLOT(selectDefault()));
+        if (m_core->isInstaller()) {
+            m_checkDefault->setObjectName(QLatin1String("SelectDefaultComponentsButton"));
+            m_checkDefault->setShortcut(QKeySequence(ComponentSelectionPage::tr("Alt+A",
+                "select default components")));
+            m_checkDefault->setText(ComponentSelectionPage::tr("Def&ault"));
+        } else {
+            m_checkDefault->setEnabled(false);
+            m_checkDefault->setObjectName(QLatin1String("ResetComponentsButton"));
+            m_checkDefault->setShortcut(QKeySequence(ComponentSelectionPage::tr("Alt+R",
+                "reset to already installed components")));
+            m_checkDefault->setText(ComponentSelectionPage::tr("&Reset"));
+        }
+        hlayout = new QHBoxLayout;
+        hlayout->addWidget(m_checkDefault);
+
+        m_checkAll = new QPushButton;
+        hlayout->addWidget(m_checkAll);
+        connect(m_checkAll, SIGNAL(clicked()), this, SLOT(selectAll()));
+        m_checkAll->setObjectName(QLatin1String("SelectAllComponentsButton"));
+        m_checkAll->setShortcut(QKeySequence(ComponentSelectionPage::tr("Alt+S",
+            "select all components")));
+        m_checkAll->setText(ComponentSelectionPage::tr("&Select All"));
+
+        m_uncheckAll = new QPushButton;
+        hlayout->addWidget(m_uncheckAll);
+        connect(m_uncheckAll, SIGNAL(clicked()), this, SLOT(deselectAll()));
+        m_uncheckAll->setObjectName(QLatin1String("DeselectAllComponentsButton"));
+        m_uncheckAll->setShortcut(QKeySequence(ComponentSelectionPage::tr("Alt+D",
+            "deselect all components")));
+        m_uncheckAll->setText(ComponentSelectionPage::tr("&Deselect All"));
+
+        hlayout->addSpacerItem(new QSpacerItem(1, 1, QSizePolicy::MinimumExpanding,
+            QSizePolicy::MinimumExpanding));
+        layout->addLayout(hlayout);
+    }
+
+    void updateTreeView()
+    {
+        m_checkDefault->setVisible(m_core->isInstaller() || m_core->isPackageManager());
+        if (m_treeView->selectionModel()) {
+            disconnect(m_treeView->selectionModel(), SIGNAL(currentChanged(QModelIndex,QModelIndex)),
+                this, SLOT(currentSelectedChanged(QModelIndex)));
+        }
+
+        m_currentModel = m_core->isUpdater() ? m_updaterModel : m_allModel;
+        m_treeView->setModel(m_currentModel);
+        m_treeView->setExpanded(m_currentModel->index(0, 0), true);
+
+        const bool installActionColumnVisible = false;
+        if (!installActionColumnVisible)
+            m_treeView->hideColumn(ComponentModelHelper::ActionColumn);
+
+        if (m_core->isInstaller()) {
+            m_treeView->setHeaderHidden(true);
+            for (int i = ComponentModelHelper::InstalledVersionColumn; i < m_currentModel->columnCount(); ++i)
+                m_treeView->hideColumn(i);
+
+            if (installActionColumnVisible) {
+                m_treeView->header()->setStretchLastSection(false);
+                m_treeView->header()->setSectionResizeMode(
+                            ComponentModelHelper::NameColumn, QHeaderView::Stretch);
+                m_treeView->header()->setSectionResizeMode(
+                            ComponentModelHelper::ActionColumn, QHeaderView::ResizeToContents);
+            }
+        } else {
+            m_treeView->header()->setStretchLastSection(true);
+            if (installActionColumnVisible) {
+                m_treeView->header()->setSectionResizeMode(
+                            ComponentModelHelper::NameColumn, QHeaderView::Interactive);
+                m_treeView->header()->setSectionResizeMode(
+                            ComponentModelHelper::ActionColumn, QHeaderView::Interactive);
+            }
+            for (int i = 0; i < m_currentModel->columnCount(); ++i)
+                m_treeView->resizeColumnToContents(i);
+        }
+
+        bool hasChildren = false;
+        const int rowCount = m_currentModel->rowCount();
+        for (int row = 0; row < rowCount && !hasChildren; ++row)
+            hasChildren = m_currentModel->hasChildren(m_currentModel->index(row, 0));
+        m_treeView->setRootIsDecorated(hasChildren);
+
+        connect(m_treeView->selectionModel(), SIGNAL(currentChanged(QModelIndex,QModelIndex)),
+            this, SLOT(currentSelectedChanged(QModelIndex)));
+
+        m_treeView->setCurrentIndex(m_currentModel->index(0, 0));
+    }
+
+public slots:
+    void currentSelectedChanged(const QModelIndex &current)
+    {
+        if (!current.isValid())
+            return;
+
+        m_sizeLabel->setText(QString());
+        m_descriptionLabel->setText(m_currentModel->data(m_currentModel->index(current.row(),
+            ComponentModelHelper::NameColumn, current.parent()), Qt::ToolTipRole).toString());
+
+        Component *component = m_currentModel->componentFromIndex(current);
+        if ((m_core->isUninstaller()) || (!component))
+            return;
+
+        if (component->isSelected() && (component->value(scUncompressedSizeSum).toLongLong() > 0)) {
+            m_sizeLabel->setText(ComponentSelectionPage::tr("This component "
+                "will occupy approximately %1 on your hard disk drive.")
+                .arg(humanReadableSize(component->value(scUncompressedSizeSum).toLongLong())));
+        }
+    }
+
+    void selectAll()
+    {
+        m_currentModel->setCheckedState(ComponentModel::AllChecked);
+    }
+
+    void deselectAll()
+    {
+        m_currentModel->setCheckedState(ComponentModel::AllUnchecked);
+    }
+
+    void selectDefault()
+    {
+        m_currentModel->setCheckedState(ComponentModel::DefaultChecked);
+    }
+
+    void onModelStateChanged(QInstaller::ComponentModel::ModelState state)
+    {
+        q->setModified(state.testFlag(ComponentModel::DefaultChecked) == false);
+        // If all components in the checked list are only checkable when run without forced
+        // installation, set ComponentModel::AllUnchecked as well, as we cannot uncheck anything.
+        // Helps to keep the UI correct.
+        if ((!m_core->noForceInstallation())
+            && (m_currentModel->checked() == m_currentModel->uncheckable())) {
+                state |= ComponentModel::AllUnchecked;
+        }
+        // enable the button if the corresponding flag is not set
+        m_checkAll->setEnabled(state.testFlag(ComponentModel::AllChecked) == false);
+        m_uncheckAll->setEnabled(state.testFlag(ComponentModel::AllUnchecked) == false);
+        m_checkDefault->setEnabled(state.testFlag(ComponentModel::DefaultChecked) == false);
+
+        // update the current selected node (important to reflect possible sub-node changes)
+        if (m_treeView->selectionModel())
+            currentSelectedChanged(m_treeView->selectionModel()->currentIndex());
+    }
+
+public:
+    ComponentSelectionPage *q;
+    PackageManagerCore *m_core;
+    QTreeView *m_treeView;
+    ComponentModel *m_allModel;
+    ComponentModel *m_updaterModel;
+    ComponentModel *m_currentModel;
+    QLabel *m_sizeLabel;
+    QLabel *m_descriptionLabel;
+    QPushButton *m_checkAll;
+    QPushButton *m_uncheckAll;
+    QPushButton *m_checkDefault;
+};
+
 
 // -- ComponentSelectionPage
 
@@ -1872,7 +1986,7 @@ void LicenseAgreementPage::updateUi()
 */
 ComponentSelectionPage::ComponentSelectionPage(PackageManagerCore *core)
     : PackageManagerPage(core)
-    , d(new ComponentSelectionPagePrivate(this, core))
+    , d(new Private(this, core))
 {
     setPixmap(QWizard::WatermarkPixmap, QPixmap());
     setObjectName(QLatin1String("ComponentSelectionPage"));
@@ -1898,7 +2012,7 @@ void ComponentSelectionPage::entering()
         QT_TR_NOOP("Please select the components you want to update."),
         QT_TR_NOOP("Please select the components you want to install."),
         QT_TR_NOOP("Please select the components you want to uninstall."),
-        QT_TR_NOOP("Select the components to install. Deselect installed components to uninstall them. Any components already installed will not be updated.")
+        QT_TR_NOOP("Select the components to install. Deselect installed components to uninstall them.")
      };
 
     int index = 0;
@@ -1910,19 +2024,6 @@ void ComponentSelectionPage::entering()
 
     d->updateTreeView();
     setModified(isComplete());
-    if (core->settings().repositoryCategories().count() > 0 && !core->isOfflineOnly()
-        && !core->isUpdater()) {
-        d->showCategoryLayout(true);
-        core->settings().setAllowUnstableComponents(true);
-    } else {
-        d->showCategoryLayout(false);
-    }
-    d->showCompressedRepositoryButton();
-}
-
-void ComponentSelectionPage::leaving()
-{
-    d->hideCompressedRepositoryButton();
 }
 
 /*!
@@ -1986,26 +2087,6 @@ void ComponentSelectionPage::deselectComponent(const QString &id)
         d->m_currentModel->setData(idx, Qt::Unchecked, Qt::CheckStateRole);
 }
 
-void ComponentSelectionPage::allowCompressedRepositoryInstall()
-{
-    d->allowCompressedRepositoryInstall();
-}
-
-bool ComponentSelectionPage::addVirtualComponentToUninstall(const QString &name)
-{
-    PackageManagerCore *core = packageManagerCore();
-    const QList<Component *> allComponents = core->components(PackageManagerCore::ComponentType::All);
-    Component *component = PackageManagerCore::componentByName(
-                name, allComponents);
-    if (component && component->isInstalled() && component->isVirtual()) {
-        component->setCheckState(Qt::Unchecked);
-        core->componentsToInstallNeedsRecalculation();
-        qDebug() << "Virtual component " << name << " was selected for uninstall by script.";
-        return true;
-    }
-    return false;
-}
-
 void ComponentSelectionPage::setModified(bool modified)
 {
     setComplete(modified);
@@ -2062,24 +2143,19 @@ TargetDirectoryPage::TargetDirectoryPage(PackageManagerCore *core)
     QLabel *msgLabel = new QLabel(this);
     msgLabel->setWordWrap(true);
     msgLabel->setObjectName(QLatin1String("MessageLabel"));
-    msgLabel->setText(tr("Please specify the directory where %1 will be installed.").arg(productName()));
+    msgLabel->setText(tr("Please specify the folder where %1 will be installed.").arg(productName()));
     layout->addWidget(msgLabel);
 
     QHBoxLayout *hlayout = new QHBoxLayout;
 
-    m_textChangeTimer.setSingleShot(true);
-    m_textChangeTimer.setInterval(200);
-    connect(&m_textChangeTimer, &QTimer::timeout, this, &QWizardPage::completeChanged);
-
     m_lineEdit = new QLineEdit(this);
     m_lineEdit->setObjectName(QLatin1String("TargetDirectoryLineEdit"));
-    connect(m_lineEdit, &QLineEdit::textChanged,
-            &m_textChangeTimer, static_cast<void (QTimer::*)()>(&QTimer::start));
+    connect(m_lineEdit, SIGNAL(textChanged(QString)), this, SIGNAL(completeChanged()));
     hlayout->addWidget(m_lineEdit);
 
     QPushButton *browseButton = new QPushButton(this);
     browseButton->setObjectName(QLatin1String("BrowseDirectoryButton"));
-    connect(browseButton, &QAbstractButton::clicked, this, &TargetDirectoryPage::dirRequested);
+    connect(browseButton, SIGNAL(clicked()), this, SLOT(dirRequested()));
     browseButton->setShortcut(QKeySequence(tr("Alt+R", "browse file system to choose a file")));
     browseButton->setText(tr("B&rowse..."));
     hlayout->addWidget(browseButton);
@@ -2150,11 +2226,6 @@ void TargetDirectoryPage::initializePage()
 */
 bool TargetDirectoryPage::validatePage()
 {
-    m_textChangeTimer.stop();
-
-    if (!isComplete())
-        return false;
-
     if (!isVisible())
         return true;
 
@@ -2180,14 +2251,14 @@ bool TargetDirectoryPage::validatePage()
 
         QFileInfo fi2(targetDir + QDir::separator() + fileName);
         if (fi2.exists()) {
-            return failWithError(QLatin1String("TargetDirectoryInUse"), tr("The directory you selected already "
+            return failWithError(QLatin1String("TargetDirectoryInUse"), tr("The folder you selected already "
                 "exists and contains an installation. Choose a different target for installation."));
         }
 
         return askQuestion(QLatin1String("OverwriteTargetDirectory"),
-            tr("You have selected an existing, non-empty directory for installation.\nNote that it will be "
+            tr("You have selected an existing, non-empty folder for installation.\nNote that it will be "
             "completely wiped on uninstallation of this application.\nIt is not advisable to install into "
-            "this directory as installation might fail.\nDo you want to continue?"));
+            "this folder as installation might fail.\nDo you want to continue?"));
     } else if (fi.isFile() || fi.isSymLink()) {
         return failWithError(QLatin1String("WrongTargetDirectory"), tr("You have selected an existing file "
             "or symlink, please choose a different target for installation."));
@@ -2242,7 +2313,7 @@ bool TargetDirectoryPage::isComplete() const
 QString TargetDirectoryPage::targetDirWarning() const
 {
     if (targetDir().isEmpty())
-        return tr("The installation path cannot be empty, please specify a valid directory.");
+        return tr("The installation path cannot be empty, please specify a valid folder.");
 
     QDir target(targetDir());
     if (target.isRelative())
@@ -2260,7 +2331,7 @@ QString TargetDirectoryPage::targetDirWarning() const
     }
 
     target = target.canonicalPath();
-    if (!target.isEmpty() && (target == QDir::root() || target == QDir::home())) {
+    if (target == QDir::root() || target == QDir::home()) {
         return tr("As the install directory is completely deleted, installing in %1 is forbidden.")
             .arg(QDir::toNativeSeparators(target.path()));
     }
@@ -2305,7 +2376,7 @@ QString TargetDirectoryPage::targetDirWarning() const
     }
 
     if (nativeTargetDir.endsWith(QLatin1Char('.')))
-        return tr("The installation path must not end with '.', please specify a valid directory.");
+        return tr("The installation path must not end with '.', please specify a valid folder.");
 
     QString ambiguousChars = QLatin1String("[\"~<>|?*!@#$%^&:,; ]"
         "|(\\\\CON)(\\\\|$)|(\\\\PRN)(\\\\|$)|(\\\\AUX)(\\\\|$)|(\\\\NUL)(\\\\|$)|(\\\\COM\\d)(\\\\|$)|(\\\\LPT\\d)(\\\\|$)");
@@ -2320,8 +2391,8 @@ QString TargetDirectoryPage::targetDirWarning() const
     // check if there are not allowed characters in the target path
     QRegularExpressionMatch match = ambCharRegEx.match(nativeTargetDir);
     if (match.hasMatch()) {
-        return tr("The installation path must not contain \"%1\", "
-            "please specify a valid directory.").arg(match.captured(0));
+        return tr("The installation path must not contain '%1', "
+            "please specify a valid folder.").arg(match.captured(0));
     }
 
     return QString();
@@ -2366,7 +2437,7 @@ StartMenuDirectoryPage::StartMenuDirectoryPage(PackageManagerCore *core)
     setObjectName(QLatin1String("StartMenuDirectoryPage"));
     setColoredTitle(tr("Start Menu shortcuts"));
     setColoredSubTitle(tr("Select the Start Menu in which you would like to create the program's "
-        "shortcuts. You can also enter a name to create a new directory."));
+        "shortcuts. You can also enter a name to create a new folder."));
 
     m_lineEdit = new QLineEdit(this);
     m_lineEdit->setText(core->value(scStartMenuDir, productName()));
@@ -2374,7 +2445,7 @@ StartMenuDirectoryPage::StartMenuDirectoryPage(PackageManagerCore *core)
 
     startMenuPath = core->value(QLatin1String("UserStartMenuProgramsPath"));
     QStringList dirs = QDir(startMenuPath).entryList(QDir::AllDirs | QDir::NoDotAndDotDot);
-    if (core->value(scAllUsers, scFalse) == scTrue) {
+    if (core->value(QLatin1String("AllUsers")) == scTrue) {
         startMenuPath = core->value(QLatin1String("AllUsersStartMenuProgramsPath"));
         dirs += QDir(startMenuPath).entryList(QDir::AllDirs | QDir::NoDotAndDotDot);
     }
@@ -2390,8 +2461,8 @@ StartMenuDirectoryPage::StartMenuDirectoryPage(PackageManagerCore *core)
 
     setLayout(layout);
 
-    connect(m_listWidget, &QListWidget::currentItemChanged, this,
-        &StartMenuDirectoryPage::currentItemChanged);
+    connect(m_listWidget, SIGNAL(currentItemChanged(QListWidgetItem*,QListWidgetItem*)), this,
+        SLOT(currentItemChanged(QListWidgetItem*)));
 }
 
 /*!
@@ -2497,7 +2568,7 @@ void ReadyForInstallationPage::entering()
             .absolutePath())));
         setComplete(true);
         return;
-    } else if (packageManagerCore()->isMaintainer()) {
+    } else if (packageManagerCore()->isPackageManager() || packageManagerCore()->isUpdater()) {
         setButtonText(QWizard::CommitButton, tr("U&pdate"));
         setColoredTitle(tr("Ready to Update Packages"));
         m_msgLabel->setText(tr("Setup is now ready to begin updating your installation."));
@@ -2510,7 +2581,7 @@ void ReadyForInstallationPage::entering()
     }
 
     QString htmlOutput;
-    bool componentsOk = packageManagerCore()->calculateComponents(&htmlOutput);
+    bool componentsOk = calculateComponents(&htmlOutput);
     m_taskDetailsBrowser->setHtml(htmlOutput);
     m_taskDetailsBrowser->setVisible(!componentsOk || isVerbose());
     setComplete(componentsOk);
@@ -2523,19 +2594,19 @@ void ReadyForInstallationPage::entering()
 
     // at the moment there is no better way to check this
     if (targetVolume.size() == 0 && installVolumeAvailableSize == 0) {
-        qDebug().nospace() << "Cannot determine available space on device. "
-                              "Volume descriptor: " << targetVolume.volumeDescriptor()
-                           << ", Mount path: " << targetVolume.mountPath() << ". Continue silently.";
+        qDebug() << QString::fromLatin1("Could not determine available space on device. Volume "
+            "descriptor: %1, Mount path: %2. Continue silently.").arg(targetVolume
+            .volumeDescriptor(), targetVolume.mountPath());
         return;     // TODO: Shouldn't this also disable the "Next" button?
     }
 
     const bool tempOnSameVolume = (targetVolume == tempVolume);
     if (tempOnSameVolume) {
-        qDebug() << "Tmp and install directories are on the same volume. Volume mount point:"
+        qDebug() << "Tmp and install folder are on the same volume. Volume mount point:"
             << targetVolume.mountPath() << "Free space available:"
             << humanReadableSize(installVolumeAvailableSize);
     } else {
-        qDebug() << "Tmp is on a different volume than the installation directory. Tmp volume mount point:"
+        qDebug() << "Tmp is on a different volume than the install folder. Tmp volume mount point:"
             << tempVolume.mountPath() << "Free space available:"
             << humanReadableSize(tempVolumeAvailableSize) << "Install volume mount point:"
             << targetVolume.mountPath() << "Free space available:"
@@ -2567,7 +2638,7 @@ void ReadyForInstallationPage::entering()
 
     if (tempOnSameVolume && (installVolumeAvailableSize <= (required + tempRequired))) {
         m_msgLabel->setText(tr("Not enough disk space to store temporary files and the "
-            "installation. %1 are available, while %2 are at least required.")
+            "installation! Available space: %1, at least required %2.")
             .arg(humanReadableSize(installVolumeAvailableSize),
             humanReadableSize(required + tempRequired)));
         setComplete(false);
@@ -2575,16 +2646,16 @@ void ReadyForInstallationPage::entering()
     }
 
     if (installVolumeAvailableSize < required) {
-        m_msgLabel->setText(tr("Not enough disk space to store all selected components! %1 are available "
-            "while %2 are at least required.").arg(humanReadableSize(installVolumeAvailableSize),
+        m_msgLabel->setText(tr("Not enough disk space to store all selected components! Available "
+            "space: %1, at least required: %2.").arg(humanReadableSize(installVolumeAvailableSize),
             humanReadableSize(required)));
         setComplete(false);
         return;
     }
 
     if (tempVolumeAvailableSize < tempRequired) {
-        m_msgLabel->setText(tr("Not enough disk space to store temporary files! %1 are available "
-            "while %2 are at least required.").arg(humanReadableSize(tempVolumeAvailableSize),
+        m_msgLabel->setText(tr("Not enough disk space to store temporary files! Available space: "
+            "%1, at least required: %2.").arg(humanReadableSize(tempVolumeAvailableSize),
             humanReadableSize(tempRequired)));
         setComplete(false);
         return;
@@ -2607,7 +2678,51 @@ void ReadyForInstallationPage::entering()
             .arg(humanReadableSize(packageManagerCore()->requiredDiskSpace()))));
 }
 
+bool ReadyForInstallationPage::calculateComponents(QString *displayString)
+{
+    QString htmlOutput;
+    QString lastInstallReason;
+    if (!packageManagerCore()->calculateComponentsToUninstall() ||
+            !packageManagerCore()->calculateComponentsToInstall()) {
+        htmlOutput.append(QString::fromLatin1("<h2><font color=\"red\">%1</font></h2><ul>")
+                          .arg(tr("Cannot resolve all dependencies.")));
+        //if we have a missing dependency or a recursion we can display it
+        if (!packageManagerCore()->componentsToInstallError().isEmpty()) {
+            htmlOutput.append(QString::fromLatin1("<li> %1 </li>").arg(
+                                  packageManagerCore()->componentsToInstallError()));
+        }
+        htmlOutput.append(QLatin1String("</ul>"));
+        if (displayString)
+            *displayString = htmlOutput;
+        return false;
+    }
 
+    // In case of updater mode we don't uninstall components.
+    if (!packageManagerCore()->isUpdater()) {
+        QList<Component*> componentsToRemove = packageManagerCore()->componentsToUninstall();
+        if (!componentsToRemove.isEmpty()) {
+            htmlOutput.append(QString::fromLatin1("<h3>%1</h3><ul>").arg(tr("Components about to "
+                "be removed.")));
+            foreach (Component *component, componentsToRemove)
+                htmlOutput.append(QString::fromLatin1("<li> %1 </li>").arg(component->name()));
+            htmlOutput.append(QLatin1String("</ul>"));
+        }
+    }
+
+    foreach (Component *component, packageManagerCore()->orderedComponentsToInstall()) {
+        const QString installReason = packageManagerCore()->installReason(component);
+        if (lastInstallReason != installReason) {
+            if (!lastInstallReason.isEmpty()) // means we had to close the previous list
+                htmlOutput.append(QLatin1String("</ul>"));
+            htmlOutput.append(QString::fromLatin1("<h3>%1</h3><ul>").arg(installReason));
+            lastInstallReason = installReason;
+        }
+        htmlOutput.append(QString::fromLatin1("<li> %1 </li>").arg(component->name()));
+    }
+    if (displayString)
+        *displayString = htmlOutput;
+    return true;
+}
 
 /*!
     Called when end users leave the page and the PackageManagerGui:currentPageChanged()
@@ -2654,27 +2769,22 @@ PerformInstallationPage::PerformInstallationPage(PackageManagerCore *core)
 
     m_performInstallationForm->setupUi(this);
 
-    connect(ProgressCoordinator::instance(), &ProgressCoordinator::detailTextChanged,
-        m_performInstallationForm, &PerformInstallationForm::appendProgressDetails);
-    connect(ProgressCoordinator::instance(), &ProgressCoordinator::detailTextResetNeeded,
-        m_performInstallationForm, &PerformInstallationForm::clearDetailsBrowser);
-    connect(m_performInstallationForm, &PerformInstallationForm::showDetailsChanged,
-            this, &PerformInstallationPage::toggleDetailsWereChanged);
+    connect(ProgressCoordinator::instance(), SIGNAL(detailTextChanged(QString)),
+        m_performInstallationForm, SLOT(appendProgressDetails(QString)));
+    connect(ProgressCoordinator::instance(), SIGNAL(detailTextResetNeeded()),
+        m_performInstallationForm, SLOT(clearDetailsBrowser()));
+    connect(m_performInstallationForm, SIGNAL(showDetailsChanged()), this,
+        SLOT(toggleDetailsWereChanged()));
 
-    connect(core, &PackageManagerCore::installationStarted,
-            this, &PerformInstallationPage::installationStarted);
-    connect(core, &PackageManagerCore::installationFinished,
-            this, &PerformInstallationPage::installationFinished);
+    connect(core, SIGNAL(installationStarted()), this, SLOT(installationStarted()));
+    connect(core, SIGNAL(installationFinished()), this, SLOT(installationFinished()));
 
-    connect(core, &PackageManagerCore::uninstallationStarted,
-            this, &PerformInstallationPage::uninstallationStarted);
-    connect(core, &PackageManagerCore::uninstallationFinished,
-            this, &PerformInstallationPage::uninstallationFinished);
+    connect(core, SIGNAL(uninstallationStarted()), this, SLOT(uninstallationStarted()));
+    connect(core, SIGNAL(uninstallationFinished()), this, SLOT(uninstallationFinished()));
 
-    connect(core, &PackageManagerCore::titleMessageChanged,
-            this, &PerformInstallationPage::setTitleMessage);
-    connect(this, &PerformInstallationPage::setAutomatedPageSwitchEnabled,
-            core, &PackageManagerCore::setAutomatedPageSwitchEnabled);
+    connect(core, SIGNAL(titleMessageChanged(QString)), this, SLOT(setTitleMessage(QString)));
+    connect(this, SIGNAL(setAutomatedPageSwitchEnabled(bool)), core,
+        SIGNAL(setAutomatedPageSwitchEnabled(bool)));
 
     m_performInstallationForm->setDetailsWidgetVisible(true);
 
@@ -2713,7 +2823,7 @@ void PerformInstallationPage::entering()
         setColoredTitle(tr("Uninstalling %1").arg(productName()));
 
         QTimer::singleShot(30, packageManagerCore(), SLOT(runUninstaller()));
-    } else if (packageManagerCore()->isMaintainer()) {
+    } else if (packageManagerCore()->isPackageManager() || packageManagerCore()->isUpdater()) {
         setButtonText(QWizard::CommitButton, tr("&Update"));
         setColoredTitle(tr("Updating components of %1").arg(productName()));
 
@@ -2805,7 +2915,7 @@ void PerformInstallationPage::toggleDetailsWereChanged()
 */
 FinishedPage::FinishedPage(PackageManagerCore *core)
     : PackageManagerPage(core)
-    , m_commitButton(nullptr)
+    , m_commitButton(0)
 {
     setObjectName(QLatin1String("FinishedPage"));
     setColoredTitle(tr("Completing the %1 Wizard").arg(productName()));
@@ -2813,6 +2923,12 @@ FinishedPage::FinishedPage(PackageManagerCore *core)
     m_msgLabel = new QLabel(this);
     m_msgLabel->setWordWrap(true);
     m_msgLabel->setObjectName(QLatin1String("MessageLabel"));
+
+#ifdef Q_OS_OSX
+    m_msgLabel->setText(tr("Click Done to exit the %1 Wizard.").arg(productName()));
+#else
+    m_msgLabel->setText(tr("Click Finish to exit the %1 Wizard.").arg(productName()));
+#endif
 
     m_runItCheckBox = new QCheckBox(this);
     m_runItCheckBox->setObjectName(QLatin1String("RunItCheckBox"));
@@ -2832,16 +2948,12 @@ FinishedPage::FinishedPage(PackageManagerCore *core)
 */
 void FinishedPage::entering()
 {
-    m_msgLabel->setText(tr("Click %1 to exit the %2 Wizard.")
-                        .arg(gui()->defaultButtonText(QWizard::FinishButton).remove(QLatin1Char('&')))
-                        .arg(productName()));
-
     if (m_commitButton) {
-        disconnect(m_commitButton, &QAbstractButton::clicked, this, &FinishedPage::handleFinishClicked);
-        m_commitButton = nullptr;
+        disconnect(m_commitButton, SIGNAL(clicked()), this, SLOT(handleFinishClicked()));
+        m_commitButton = 0;
     }
 
-    if (packageManagerCore()->isMaintainer()) {
+    if (packageManagerCore()->isUpdater() || packageManagerCore()->isPackageManager()) {
 #ifdef Q_OS_OSX
         gui()->setOption(QWizard::NoCancelButton, false);
 #endif
@@ -2850,13 +2962,13 @@ void FinishedPage::entering()
             cancel->setEnabled(true);
             cancel->setVisible(true);
             // we don't use the usual FinishButton so we need to connect the misused CancelButton
-            connect(cancel, &QAbstractButton::clicked, gui(), &PackageManagerGui::finishButtonClicked);
-            connect(cancel, &QAbstractButton::clicked, packageManagerCore(), &PackageManagerCore::finishButtonClicked);
+            connect(cancel, SIGNAL(clicked()), gui(), SIGNAL(finishButtonClicked()));
+            connect(cancel, SIGNAL(clicked()), packageManagerCore(), SIGNAL(finishButtonClicked()));
             // for the moment we don't want the rejected signal connected
-            disconnect(gui(), &QDialog::rejected, packageManagerCore(), &PackageManagerCore::setCanceled);
+            disconnect(gui(), SIGNAL(rejected()), packageManagerCore(), SLOT(setCanceled()));
 
-            connect(gui()->button(QWizard::CommitButton), &QAbstractButton::clicked,
-                    this, &FinishedPage::cleanupChangedConnects);
+            connect(gui()->button(QWizard::CommitButton), SIGNAL(clicked()), this,
+                SLOT(cleanupChangedConnects()));
         }
         setButtonText(QWizard::CommitButton, tr("Restart"));
         setButtonText(QWizard::CancelButton, gui()->defaultButtonText(QWizard::FinishButton));
@@ -2875,8 +2987,8 @@ void FinishedPage::entering()
     gui()->updateButtonLayout();
 
     if (m_commitButton) {
-        disconnect(m_commitButton, &QAbstractButton::clicked, this, &FinishedPage::handleFinishClicked);
-        connect(m_commitButton, &QAbstractButton::clicked, this, &FinishedPage::handleFinishClicked);
+        disconnect(m_commitButton, SIGNAL(clicked()), this, SLOT(handleFinishClicked()));
+        connect(m_commitButton, SIGNAL(clicked()), this, SLOT(handleFinishClicked()));
     }
 
     if (packageManagerCore()->status() == PackageManagerCore::Success) {
@@ -2943,12 +3055,12 @@ void FinishedPage::cleanupChangedConnects()
 {
     if (QAbstractButton *cancel = gui()->button(QWizard::CancelButton)) {
         // remove the workaround connect from entering page
-        disconnect(cancel, &QAbstractButton::clicked, gui(), &PackageManagerGui::finishButtonClicked);
-        disconnect(cancel, &QAbstractButton::clicked, packageManagerCore(), &PackageManagerCore::finishButtonClicked);
-        connect(gui(), &QDialog::rejected, packageManagerCore(), &PackageManagerCore::setCanceled);
+        disconnect(cancel, SIGNAL(clicked()), gui(), SIGNAL(finishButtonClicked()));
+        disconnect(cancel, SIGNAL(clicked()), packageManagerCore(), SIGNAL(finishButtonClicked()));
+        connect(gui(), SIGNAL(rejected()), packageManagerCore(), SLOT(setCanceled()));
 
-        disconnect(gui()->button(QWizard::CommitButton), &QAbstractButton::clicked,
-                   this, &FinishedPage::cleanupChangedConnects);
+        disconnect(gui()->button(QWizard::CommitButton), SIGNAL(clicked()), this,
+            SLOT(cleanupChangedConnects()));
     }
 }
 

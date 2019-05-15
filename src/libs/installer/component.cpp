@@ -38,36 +38,30 @@
 #include "settings.h"
 #include "utils.h"
 
-#include "updateoperationfactory.h"
+#include <kdupdaterupdatesourcesinfo.h>
+#include <kdupdaterupdateoperationfactory.h>
 
 #include <productkeycheck.h>
 
 #include <QtCore/QDirIterator>
-#include <QtCore/QRegExp>
 #include <QtCore/QTranslator>
 
 #include <QApplication>
 
 #include <QtUiTools/QUiLoader>
 
-#include <private/qv8engine_p.h>
-#include <private/qv4scopedvalue_p.h>
-#include <private/qv4object_p.h>
-
 #include <algorithm>
 
 using namespace QInstaller;
 
 static const QLatin1String scScriptTag("Script");
+static const QLatin1String scAutoDependOn("AutoDependOn");
 static const QLatin1String scVirtual("Virtual");
 static const QLatin1String scInstalled("Installed");
 static const QLatin1String scUpdateText("UpdateText");
 static const QLatin1String scUninstalled("Uninstalled");
 static const QLatin1String scCurrentState("CurrentState");
 static const QLatin1String scForcedInstallation("ForcedInstallation");
-static const QLatin1String scCheckable("Checkable");
-static const QLatin1String scExpandedByDefault("ExpandedByDefault");
-static const QLatin1String scUnstable("Unstable");
 
 /*!
     \inmodule QtInstallerFramework
@@ -213,7 +207,7 @@ Component::Component(PackageManagerCore *core)
 {
     setPrivate(d);
 
-    connect(this, &Component::valueChanged, this, &Component::updateModelData);
+    connect(this, SIGNAL(valueChanged(QString, QString)), this, SLOT(updateModelData(QString, QString)));
     qRegisterMetaType<QList<QInstaller::Component*> >("QList<QInstaller::Component*>");
 }
 
@@ -242,9 +236,10 @@ Component::~Component()
 /*!
     Sets variables according to the values set in the package.xml file of a local \a package.
 */
-void Component::loadDataFromPackage(const KDUpdater::LocalPackage &package)
+void Component::loadDataFromPackage(const LocalPackage &package)
 {
     setValue(scName, package.name);
+    // pixmap ???
     setValue(scDisplayName, package.title);
     setValue(scDescription, package.description);
     setValue(scVersion, package.version);
@@ -253,8 +248,14 @@ void Component::loadDataFromPackage(const KDUpdater::LocalPackage &package)
     setValue(QLatin1String("LastUpdateDate"), package.lastUpdateDate.toString());
     setValue(QLatin1String("InstallDate"), package.installDate.toString());
     setValue(scUncompressedSize, QString::number(package.uncompressedSize));
-    setValue(scDependencies, package.dependencies.join(QLatin1String(",")));
-    setValue(scAutoDependOn, package.autoDependencies.join(QLatin1String(",")));
+
+    QString dependstr;
+    foreach (const QString &val, package.dependencies)
+        dependstr += val + QLatin1String(",");
+
+    if (package.dependencies.count() > 0)
+        dependstr.chop(1);
+    setValue(scDependencies, dependstr);
 
     setValue(scForcedInstallation, package.forcedInstallation ? scTrue : scFalse);
     if (package.forcedInstallation & !PackageManagerCore::noForceInstallation()) {
@@ -263,8 +264,6 @@ void Component::loadDataFromPackage(const KDUpdater::LocalPackage &package)
     }
     setValue(scVirtual, package.virtualComp ? scTrue : scFalse);
     setValue(scCurrentState, scInstalled);
-    setValue(scCheckable, package.checkable ? scTrue : scFalse);
-    setValue(scExpandedByDefault, package.expandedByDefault ? scTrue : scFalse);
 }
 
 /*!
@@ -282,7 +281,7 @@ void Component::loadDataFromPackage(const Package &package)
     setValue(scAutoDependOn, package.data(scAutoDependOn).toString());
     setValue(scCompressedSize, package.data(scCompressedSize).toString());
     setValue(scUncompressedSize, package.data(scUncompressedSize).toString());
-    setValue(scVersion, package.data(scVersion).toString());
+    setValue(scRemoteVersion, package.data(scRemoteVersion).toString());
     setValue(scInheritVersion, package.data(scInheritVersion).toString());
     setValue(scDependencies, package.data(scDependencies).toString());
     setValue(scDownloadableArchives, package.data(scDownloadableArchives).toString());
@@ -297,8 +296,6 @@ void Component::loadDataFromPackage(const Package &package)
     setValue(scScriptTag, package.data(scScriptTag).toString());
     setValue(scReplaces, package.data(scReplaces).toString());
     setValue(scReleaseDate, package.data(scReleaseDate).toString());
-    setValue(scCheckable, package.data(scCheckable).toString());
-    setValue(scExpandedByDefault, package.data(scExpandedByDefault).toString());
 
     QString forced = package.data(scForcedInstallation, scFalse).toString().toLower();
     if (PackageManagerCore::noForceInstallation())
@@ -309,7 +306,7 @@ void Component::loadDataFromPackage(const Package &package)
         setCheckState(Qt::Checked);
     }
 
-    setLocalTempPath(QInstaller::pathFromUrl(package.packageSource().url));
+    setLocalTempPath(QInstaller::pathFromUrl(package.sourceInfoUrl()));
     const QStringList uis = package.data(QLatin1String("UserInterfaces")).toString()
         .split(QInstaller::commaRegExp(), QString::SkipEmptyParts);
     if (!uis.isEmpty())
@@ -390,10 +387,6 @@ void Component::setValue(const QString &key, const QString &value)
 
     if (key == scName)
         d->m_componentName = normalizedValue;
-    if (key == scCheckable)
-        this->setCheckable(normalizedValue.toLower() == scTrue);
-    if (key == scExpandedByDefault)
-        this->setExpandedByDefault(normalizedValue.toLower() == scTrue);
 
     d->m_vars[key] = normalizedValue;
     emit valueChanged(key, normalizedValue);
@@ -512,29 +505,9 @@ void Component::loadComponentScript(const QString &fileName)
 {
     // introduce the component object as javascript value and call the name to check that it
     // was successful
-    try {
-        d->m_scriptContext = d->scriptEngine()->loadInContext(QLatin1String("Component"), fileName,
-            QString::fromLatin1("var component = installer.componentByName('%1'); component.name;")
-            .arg(name()));
-        if (packageManagerCore()->settings().allowUnstableComponents()) {
-            // Check if component has dependency to a broken component. Dependencies to broken
-            // components are checked if error is thrown but if dependency to a broken
-            // component is added in script, the script might not be loaded yet
-            foreach (QString dependency, dependencies()) {
-                Component *dependencyComponent = packageManagerCore()->componentByName
-                        (PackageManagerCore::checkableName(dependency));
-                if (dependencyComponent && dependencyComponent->isUnstable())
-                    setUnstable(PackageManagerCore::UnstableError::DepencyToUnstable, QLatin1String("Dependent on unstable component"));
-            }
-        }
-    } catch (const Error &error) {
-        if (packageManagerCore()->settings().allowUnstableComponents()) {
-            setUnstable(PackageManagerCore::UnstableError::ScriptLoadingFailed, error.message());
-            qWarning() << error.message();
-        } else {
-            throw error;
-        }
-    }
+    d->m_scriptContext = d->scriptEngine()->loadInContext(QLatin1String("Component"), fileName,
+        QString::fromLatin1("var component = installer.componentByName('%1'); component.name;")
+        .arg(name()));
 
     emit loaded();
     languageChanged();
@@ -596,8 +569,8 @@ void Component::loadUserInterfaces(const QDir &directory, const QStringList &uis
     while (it.hasNext()) {
         QFile file(it.next());
         if (!file.open(QIODevice::ReadOnly)) {
-            throw Error(tr("Cannot open the requested UI file \"%1\": %2").arg(
-                            it.fileName(), file.errorString()));
+            throw Error(tr("Could not open the requested UI file '%1'. Error: %2").arg(it.fileName(),
+                file.errorString()));
         }
 
         static QUiLoader loader;
@@ -605,8 +578,8 @@ void Component::loadUserInterfaces(const QDir &directory, const QStringList &uis
         loader.setLanguageChangeEnabled(true);
         QWidget *const widget = loader.load(&file, 0);
         if (!widget) {
-            throw Error(tr("Cannot load the requested UI file \"%1\": %2").arg(
-                            it.fileName(), loader.errorString()));
+            throw Error(tr("Could not load the requested UI file '%1'. Error: %2").arg(it.fileName(),
+                loader.errorString()));
         }
         d->scriptEngine()->newQObject(widget);
         d->m_userInterfaces.insert(widget->objectName(), widget);
@@ -650,7 +623,7 @@ void Component::loadLicenses(const QString &directory, const QHash<QString, QVar
 
         QFile file(fileInfo.filePath());
         if (!file.open(QIODevice::ReadOnly)) {
-            throw Error(tr("Cannot open the requested license file \"%1\": %2").arg(
+            throw Error(tr("Could not open the requested license file '%1'. Error: %2").arg(
                             file.fileName(), file.errorString()));
         }
         QTextStream stream(&file);
@@ -724,11 +697,11 @@ void Component::createOperationsForPath(const QString &path)
 
     if (fi.isFile()) {
         static const QString copy = QString::fromLatin1("Copy");
-        addOperation(copy, QStringList() << fi.filePath() << target);
+        addOperation(copy, fi.filePath(), target);
     } else if (fi.isDir()) {
         qApp->processEvents();
         static const QString mkdir = QString::fromLatin1("Mkdir");
-        addOperation(mkdir, QStringList(target));
+        addOperation(mkdir, target);
 
         QDirIterator it(fi.filePath());
         while (it.hasNext())
@@ -768,7 +741,7 @@ void Component::createOperationsForArchive(const QString &archive)
 
     if (isZip) {
         // archives get completely extracted per default (if the script isn't doing other stuff)
-        addOperation(QLatin1String("Extract"), QStringList() << archive << QLatin1String("@TargetDir@"));
+        addOperation(QLatin1String("Extract"), archive, QLatin1String("@TargetDir@"));
     } else {
         createOperationsForPath(archive);
     }
@@ -849,7 +822,7 @@ void Component::addDownloadableArchive(const QString &path)
     Q_ASSERT(isFromOnlineRepository());
 
     qDebug() << "addDownloadable" << path;
-    d->m_downloadableArchives.append(d->m_vars.value(scVersion) + path);
+    d->m_downloadableArchives.append(d->m_vars.value(scRemoteVersion) + path);
 }
 
 /*!
@@ -928,14 +901,15 @@ OperationList Component::operations() const
 
         if (!d->m_minimumProgressOperation) {
             d->m_minimumProgressOperation = KDUpdater::UpdateOperationFactory::instance()
-                .create(QLatin1String("MinimumProgress"), d->m_core);
+                .create(QLatin1String("MinimumProgress"));
             d->m_minimumProgressOperation->setValue(QLatin1String("component"), name());
             d->m_operations.append(d->m_minimumProgressOperation);
         }
 
         if (!d->m_licenses.isEmpty()) {
             d->m_licenseOperation = KDUpdater::UpdateOperationFactory::instance()
-                .create(QLatin1String("License"), d->m_core);
+                .create(QLatin1String("License"));
+            d->m_licenseOperation->setValue(QLatin1String("installer"), QVariant::fromValue(d->m_core));
             d->m_licenseOperation->setValue(QLatin1String("component"), name());
 
             QVariantMap licenses;
@@ -1009,12 +983,11 @@ Operation *Component::createOperation(const QString &operationName, const QStrin
 
 Operation *Component::createOperation(const QString &operationName, const QStringList &parameters)
 {
-    Operation *operation = KDUpdater::UpdateOperationFactory::instance().create(operationName,
-        d->m_core);
+    Operation *operation = KDUpdater::UpdateOperationFactory::instance().create(operationName);
     if (operation == 0) {
         const QMessageBox::StandardButton button =
             MessageBoxHandler::critical(MessageBoxHandler::currentBestSuitParent(),
-            QLatin1String("OperationDoesNotExistError"), tr("Error"), tr("Error: Operation %1 does not exist.")
+            QLatin1String("OperationDoesNotExistError"), tr("Error"), tr("Error: Operation %1 does not exist")
                 .arg(operationName), QMessageBox::Abort | QMessageBox::Ignore);
         if (button == QMessageBox::Abort)
             d->m_operationsCreatedSuccessfully = false;
@@ -1023,65 +996,33 @@ Operation *Component::createOperation(const QString &operationName, const QStrin
 
     if (operation->name() == QLatin1String("Delete"))
         operation->setValue(QLatin1String("performUndo"), false);
+    operation->setValue(QLatin1String("installer"), qVariantFromValue(d->m_core));
 
     operation->setArguments(d->m_core->replaceVariables(parameters));
     operation->setValue(QLatin1String("component"), name());
     return operation;
 }
 
-void Component::markComponentUnstable()
-{
-    setValue(scDefault, scFalse);
-    // Mark unstable component unchecked if:
-    // 1. Installer, so the unstable component won't be installed
-    // 2. Maintenancetool, when component is not installed.
-    // 3. Updater, we don't want to update unstable components
-    // Mark unstable component checked if:
-    // 1. Maintenancetool, if component is installed and
-    //    unstable so it won't get uninstalled.
-    if (d->m_core->isInstaller() || !isInstalled() || d->m_core->isUpdater())
-        setCheckState(Qt::Unchecked);
-    setValue(scUnstable, scTrue);
-}
-
-namespace {
-
-inline bool convert(QQmlV4Function *func, QStringList *toArgs)
-{
-    if (func->length() < 2)
-        return false;
-
-    QV4::Scope scope(func->v4engine());
-    QV4::ScopedValue val(scope);
-    val = (*func)[0];
-
-    *toArgs << val->toQString();
-    for (int i = 1; i < func->length(); i++) {
-        val = (*func)[i];
-        if (val->isObject() && val->as<QV4::Object>()->isArrayObject()) {
-            QV4::ScopedValue valtmp(scope);
-            QV4::Object *array = val->as<QV4::Object>();
-            uint length = array->getLength();
-            for (uint ii = 0; ii < length; ++ii) {
-                valtmp = array->getIndexed(ii);
-                *toArgs << valtmp->toQStringNoThrow();
-            }
-        } else {
-            *toArgs << val->toQString();
-        }
-    }
-    return true;
-}
-
-}
 /*!
-    \internal
+    Convenience method for calling the operation \a operation with up to ten parameters:
+    \a parameter1, \a parameter2, \a parameter3, \a parameter4, \a parameter5, \a parameter6,
+    \a parameter7, \a parameter8, \a parameter9, and \a parameter10.
+
+    Returns \c true if the operation succeeds, otherwise returns \c false.
+
+    \sa {component::addOperation}{component.addOperation}
 */
-bool Component::addOperation(QQmlV4Function *func)
+bool Component::addOperation(const QString &operation, const QString &parameter1, const QString &parameter2,
+    const QString &parameter3, const QString &parameter4, const QString &parameter5, const QString &parameter6,
+    const QString &parameter7, const QString &parameter8, const QString &parameter9, const QString &parameter10)
 {
-    QStringList args;
-    if (convert(func, &args))
-        return addOperation(args[0], args.mid(1));
+
+    if (Operation *op = createOperation(operation, parameter1, parameter2, parameter3, parameter4, parameter5,
+        parameter6, parameter7, parameter8, parameter9, parameter10)) {
+            addOperation(op);
+            return true;
+    }
+
     return false;
 }
 
@@ -1090,7 +1031,7 @@ bool Component::addOperation(QQmlV4Function *func)
     The variables that the parameters contain, such as \c @TargetDir@, are replaced with their
     values.
 
-    \sa {component::addOperation}{component.addOperation}
+    Returns \c true if the operation succeeds, otherwise returns \c false.
 */
 bool Component::addOperation(const QString &operation, const QStringList &parameters)
 {
@@ -1103,13 +1044,25 @@ bool Component::addOperation(const QString &operation, const QStringList &parame
 }
 
 /*!
-    \internal
+    Convenience method for calling the elevated operation \a operation with up to ten parameters:
+    \a parameter1, \a parameter2, \a parameter3, \a parameter4, \a parameter5, \a parameter6,
+    \a parameter7, \a parameter8, \a parameter9, and \a parameter10.
+
+    \sa {component::addElevatedOperation}{component.addElevatedOperation}
+
+    Returns \c true if the operation succeeds, otherwise returns \c false.
 */
-bool Component::addElevatedOperation(QQmlV4Function *func)
+bool Component::addElevatedOperation(const QString &operation, const QString &parameter1,
+    const QString &parameter2, const QString &parameter3, const QString &parameter4, const QString &parameter5,
+    const QString &parameter6, const QString &parameter7, const QString &parameter8, const QString &parameter9,
+    const QString &parameter10)
 {
-    QStringList args;
-    if (convert(func, &args))
-        return addElevatedOperation(args[0], args.mid(1));
+    if (Operation *op = createOperation(operation, parameter1, parameter2, parameter3, parameter4, parameter5,
+        parameter6, parameter7, parameter8, parameter9, parameter10)) {
+            addElevatedOperation(op);
+            return true;
+    }
+
     return false;
 }
 
@@ -1118,7 +1071,8 @@ bool Component::addElevatedOperation(QQmlV4Function *func)
     The variables that the parameters contain, such as \c @TargetDir@, are replaced with their
     values. The operation is executed with elevated rights.
 
-    \sa {component::addElevatedOperation}{component.addElevatedOperation}
+    Returns \c true if the operation succeeds, otherwise returns \c false.
+
 */
 bool Component::addElevatedOperation(const QString &operation, const QStringList &parameters)
 {
@@ -1131,8 +1085,9 @@ bool Component::addElevatedOperation(const QString &operation, const QStringList
 }
 
 /*!
-    Specifies whether operations should be automatically created when the installation starts. This
-    would be done by calling createOperations(). If you set this to \c false, it is completely up
+    Returns whether operations should be automatically created when the
+    installation starts and createOperations() is called. If you set this to
+    \c false, it is completely up
     to the component's script to create all operations.
 
     \sa {component::autoCreateOperations}{component.autoCreateOperations}
@@ -1211,22 +1166,6 @@ QStringList Component::dependencies() const
     return d->m_vars.value(scDependencies).split(QInstaller::commaRegExp(), QString::SkipEmptyParts);
 }
 
-/*!
-    Adds the component specified by \a newDependOn to the automatic depend-on list.
-
-    \sa {component::addAutoDependOn}{component.addAutoDependOn}
-    \sa dependencies
-*/
-
-void Component::addAutoDependOn(const QString &newDependOn)
-{
-    QString oldDependOn = d->m_vars.value(scAutoDependOn);
-    if (oldDependOn.isEmpty())
-        setValue(scAutoDependOn, newDependOn);
-    else
-        setValue(scAutoDependOn, oldDependOn + QLatin1String(", ") + newDependOn);
-}
-
 QStringList Component::autoDependencies() const
 {
     return d->m_vars.value(scAutoDependOn).split(QInstaller::commaRegExp(), QString::SkipEmptyParts);
@@ -1299,13 +1238,9 @@ bool Component::isDefault() const
     return d->m_vars.value(scDefault).compare(scTrue, Qt::CaseInsensitive) == 0;
 }
 
-bool Component::isInstalled(const QString version) const
+bool Component::isInstalled() const
 {
-    if (version.isEmpty()) {
-        return scInstalled == d->m_vars.value(scCurrentState);
-    } else {
-        return d->m_vars.value(scInstalledVersion) == version;
-    }
+    return scInstalled == d->m_vars.value(scCurrentState);
 }
 
 /*!
@@ -1343,7 +1278,7 @@ void Component::setUpdateAvailable(bool isUpdateAvailable)
 */
 bool Component::updateRequested()
 {
-    return d->m_updateIsAvailable && isSelected() && !isUnstable();
+    return d->m_updateIsAvailable && isSelected();
 }
 
 /*!
@@ -1373,33 +1308,6 @@ void Component::setUninstalled()
 bool Component::isUninstalled() const
 {
     return scUninstalled == d->m_vars.value(scCurrentState);
-}
-
-bool Component::isUnstable() const
-{
-    return scTrue == d->m_vars.value(scUnstable);
-}
-
-void Component::setUnstable(PackageManagerCore::UnstableError error, const QString &errorMessage)
-{
-    QList<Component*> dependencies = d->m_core->dependees(this);
-    // Mark this component unstable
-    markComponentUnstable();
-
-    // Marks all components unstable that depend on the unstable component
-    foreach (Component *dependency, dependencies) {
-        dependency->markComponentUnstable();
-        foreach (Component *descendant, dependency->descendantComponents()) {
-            descendant->markComponentUnstable();
-        }
-    }
-
-    // Marks all child components unstable
-    foreach (Component *descendant, this->descendantComponents()) {
-        descendant->markComponentUnstable();
-    }
-    QMetaEnum metaEnum = QMetaEnum::fromType<PackageManagerCore::UnstableError>();
-    emit packageManagerCore()->unstableComponentFound(QLatin1String(metaEnum.valueToKey(error)), errorMessage, this->name());
 }
 
 /*!
@@ -1487,21 +1395,13 @@ void Component::updateModelData(const QString &key, const QString &data)
 
     const QString &updateInfo = d->m_vars.value(scUpdateText);
     if (!d->m_core->isUpdater() || updateInfo.isEmpty()) {
-        QString tooltipText
+        const QString tooltipText
                 = QString::fromLatin1("<html><body>%1</body></html>").arg(d->m_vars.value(scDescription));
-        if (isUnstable()) {
-            tooltipText += QLatin1String("<br>") + tr("There was an error loading the selected component. "
-                                                          "This component can not be installed.");
-        }
         setData(tooltipText, Qt::ToolTipRole);
     } else {
-        QString tooltipText
+        const QString tooltipText
                 = d->m_vars.value(scDescription) + QLatin1String("<br><br>")
                 + tr("Update Info: ") + updateInfo;
-        if (isUnstable()) {
-            tooltipText += QLatin1String("<br>") + tr("There was an error loading the selected component. "
-                                                          "This component can not be updated.");
-        }
 
         setData(tooltipText, Qt::ToolTipRole);
     }

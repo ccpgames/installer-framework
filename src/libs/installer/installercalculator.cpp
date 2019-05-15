@@ -30,7 +30,6 @@
 
 #include "component.h"
 #include "packagemanagercore.h"
-#include "settings.h"
 
 #include <QDebug>
 
@@ -72,7 +71,7 @@ QString InstallerCalculator::installReason(Component *component) const
                 "Components added as automatic dependencies:");
         case Dependent:
             return QCoreApplication::translate("InstallerCalculator", "Components added as "
-                "dependency for \"%1\":").arg(installReasonReferencedComponent(component));
+                "dependency for '%1':").arg(installReasonReferencedComponent(component));
         case Resolved:
             return QCoreApplication::translate("InstallerCalculator",
                 "Components that have resolved dependencies:");
@@ -93,9 +92,9 @@ QString InstallerCalculator::componentsToInstallError() const
     return m_componentsToInstallError;
 }
 
-void InstallerCalculator::realAppendToInstallComponents(Component *component, const QString &version)
+void InstallerCalculator::realAppendToInstallComponents(Component *component)
 {
-    if (!component->isInstalled(version) || component->updateRequested()) {
+    if (!component->isInstalled() || component->updateRequested()) {
         m_orderedComponentsToInstall.append(component);
         m_toInstallComponentIds.insert(component->name());
     }
@@ -103,8 +102,8 @@ void InstallerCalculator::realAppendToInstallComponents(Component *component, co
 
 QString InstallerCalculator::recursionError(Component *component)
 {
-    return QCoreApplication::translate("InstallerCalculator", "Recursion detected, component \"%1\" "
-        "already added with reason: \"%2\"").arg(component->name(), installReason(component));
+    return QCoreApplication::translate("InstallerCalculator", "Recursion detected, component '%1' "
+        "already added with reason: '%2'").arg(component->name(), installReason(component));
 }
 
 bool InstallerCalculator::appendComponentsToInstall(const QList<Component *> &components)
@@ -116,7 +115,7 @@ bool InstallerCalculator::appendComponentsToInstall(const QList<Component *> &co
     foreach (Component *component, components){
         if (m_toInstallComponentIds.contains(component->name())) {
             const QString errorMessage = recursionError(component);
-            qWarning().noquote() << errorMessage;
+            qWarning() << errorMessage;
             m_componentsToInstallError.append(errorMessage);
             Q_ASSERT_X(!m_toInstallComponentIds.contains(component->name()), Q_FUNC_INFO,
                 qPrintable(errorMessage));
@@ -155,10 +154,10 @@ bool InstallerCalculator::appendComponentsToInstall(const QList<Component *> &co
     return true;
 }
 
-bool InstallerCalculator::appendComponentToInstall(Component *component, const QString &version)
+bool InstallerCalculator::appendComponentToInstall(Component *component)
 {
     QSet<QString> allDependencies = component->dependencies().toSet();
-    QString requiredDependencyVersion = version;
+
     foreach (const QString &dependencyComponentName, allDependencies) {
         // PackageManagerCore::componentByName returns 0 if dependencyComponentName contains a
         // version which is not available
@@ -166,63 +165,36 @@ bool InstallerCalculator::appendComponentToInstall(Component *component, const Q
             PackageManagerCore::componentByName(dependencyComponentName, m_allComponents);
         if (!dependencyComponent) {
             const QString errorMessage = QCoreApplication::translate("InstallerCalculator",
-                "Cannot find missing dependency \"%1\" for \"%2\".").arg(dependencyComponentName,
+                "Cannot find missing dependency '%1' for '%2'.").arg(dependencyComponentName,
                 component->name());
-            qWarning().noquote() << errorMessage;
+            qWarning() << errorMessage;
             m_componentsToInstallError.append(errorMessage);
-            if (component->packageManagerCore()->settings().allowUnstableComponents()) {
-                component->setUnstable(PackageManagerCore::UnstableError::MissingDependency, errorMessage);
-                continue;
-            } else {
-                return false;
-            }
+            return false;
         }
-        //Check if component requires higher version than what might be already installed
-        bool isUpdateRequired = false;
-        QString requiredName;
-        QString requiredVersion;
-        PackageManagerCore::parseNameAndVersion(dependencyComponentName, &requiredName, &requiredVersion);
-        if (!requiredVersion.isEmpty() &&
-                !dependencyComponent->value(scInstalledVersion).isEmpty()) {
-            QRegExp compEx(QLatin1String("([<=>]+)(.*)"));
-            const QString installedVersion = compEx.exactMatch(dependencyComponent->value(scInstalledVersion)) ?
-                compEx.cap(2) : dependencyComponent->value(scInstalledVersion);
 
-            requiredVersion = compEx.exactMatch(requiredVersion) ? compEx.cap(2) : requiredVersion;
+        if ((!dependencyComponent->isInstalled() || dependencyComponent->updateRequested())
+            && !m_toInstallComponentIds.contains(dependencyComponent->name())) {
+                if (m_visitedComponents.value(component).contains(dependencyComponent)) {
+                    const QString errorMessage = recursionError(component);
+                    qWarning() << errorMessage;
+                    m_componentsToInstallError = errorMessage;
+                    Q_ASSERT_X(!m_visitedComponents.value(component).contains(dependencyComponent),
+                        Q_FUNC_INFO, qPrintable(errorMessage));
+                    return false;
+                }
+                m_visitedComponents[component].insert(dependencyComponent);
 
-            if (KDUpdater::compareVersion(requiredVersion, installedVersion) >= 1 ) {
-                isUpdateRequired = true;
-                requiredDependencyVersion = requiredVersion;
-            }
-        }
-        //Check dependencies only if
-        //- Dependency is not installed or update requested, nor newer version of dependency component required
-        //- And dependency component is not already added for install
-        //- And component is not already added for install, then dependencies are already resolved
-        if (((!dependencyComponent->isInstalled() || dependencyComponent->updateRequested())
-                || isUpdateRequired) && (!m_toInstallComponentIds.contains(dependencyComponent->name())
-                && !m_toInstallComponentIds.contains(component->name()))) {
-            if (m_visitedComponents.value(component).contains(dependencyComponent)) {
-                const QString errorMessage = recursionError(component);
-                qWarning().noquote() << errorMessage;
-                m_componentsToInstallError = errorMessage;
-                Q_ASSERT_X(!m_visitedComponents.value(component).contains(dependencyComponent),
-                    Q_FUNC_INFO, qPrintable(errorMessage));
-                return false;
-            }
-            m_visitedComponents[component].insert(dependencyComponent);
+                // add needed dependency components to the next run
+                insertInstallReason(dependencyComponent, InstallerCalculator::Dependent,
+                    component->name());
 
-            // add needed dependency components to the next run
-            insertInstallReason(dependencyComponent, InstallerCalculator::Dependent,
-                component->name());
-
-            if (!appendComponentToInstall(dependencyComponent, requiredDependencyVersion))
-                return false;
+                if (!appendComponentToInstall(dependencyComponent))
+                    return false;
         }
     }
 
     if (!m_toInstallComponentIds.contains(component->name())) {
-        realAppendToInstallComponents(component, requiredDependencyVersion);
+        realAppendToInstallComponents(component);
         insertInstallReason(component, InstallerCalculator::Resolved);
     }
     return true;

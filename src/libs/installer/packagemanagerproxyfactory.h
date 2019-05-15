@@ -29,7 +29,7 @@
 #ifndef PACKAGEMANAGERPROXYFACTORY_H
 #define PACKAGEMANAGERPROXYFACTORY_H
 
-#include "filedownloaderfactory.h"
+#include "kdupdaterfiledownloaderfactory.h"
 
 namespace QInstaller {
 

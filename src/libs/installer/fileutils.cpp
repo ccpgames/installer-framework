@@ -130,14 +130,14 @@ QString QInstaller::humanReadableSize(const qint64 &size, int precision)
     static QStringList measures;
     if (measures.isEmpty())
         measures << QCoreApplication::translate("QInstaller", "bytes")
-                 << QCoreApplication::translate("QInstaller", "KB")
-                 << QCoreApplication::translate("QInstaller", "MB")
-                 << QCoreApplication::translate("QInstaller", "GB")
-                 << QCoreApplication::translate("QInstaller", "TB")
-                 << QCoreApplication::translate("QInstaller", "PB")
-                 << QCoreApplication::translate("QInstaller", "EB")
-                 << QCoreApplication::translate("QInstaller", "ZB")
-                 << QCoreApplication::translate("QInstaller", "YB");
+                 << QCoreApplication::translate("QInstaller", "KiB")
+                 << QCoreApplication::translate("QInstaller", "MiB")
+                 << QCoreApplication::translate("QInstaller", "GiB")
+                 << QCoreApplication::translate("QInstaller", "TiB")
+                 << QCoreApplication::translate("QInstaller", "PiB")
+                 << QCoreApplication::translate("QInstaller", "EiB")
+                 << QCoreApplication::translate("QInstaller", "ZiB")
+                 << QCoreApplication::translate("QInstaller", "YiB");
 
     QStringListIterator it(measures);
     QString measure(it.next());
@@ -173,23 +173,13 @@ void QInstaller::removeFiles(const QString &path, bool ignoreErrors)
     const QFileInfoList entries = QDir(path).entryInfoList(QDir::AllEntries | QDir::Hidden);
     foreach (const QFileInfo &fi, entries) {
         if (fi.isSymLink() || fi.isFile()) {
-            QString filePath = fi.filePath();
-            QFile f(filePath);
-            bool ok = f.remove();
-            if (!ok) { //ReadOnly can prevent removing in Windows. Change permission and try again.
-                const QFile::Permissions permissions = f.permissions();
-                if (!(permissions & QFile::WriteUser)) {
-                    ok = f.setPermissions(filePath, permissions | QFile::WriteUser)
-                            && f.remove(filePath);
-                }
-                if (!ok) {
-                    const QString errorMessage = QCoreApplication::translate("QInstaller",
-                        "Cannot remove file \"%1\": %2").arg(
-                                QDir::toNativeSeparators(f.fileName()), f.errorString());
-                    if (!ignoreErrors)
-                        throw Error(errorMessage);
-                    qWarning().noquote() << errorMessage;
-                }
+            QFile f(fi.filePath());
+            if (!f.remove()) {
+                const QString errorMessage = QCoreApplication::translate("QInstaller",
+                    "Could not remove file %1: %2").arg(f.fileName(), f.errorString());
+                if (!ignoreErrors)
+                    throw Error(errorMessage);
+                qWarning() << errorMessage;
             }
         }
     }
@@ -227,11 +217,10 @@ void QInstaller::removeDirectory(const QString &path, bool ignoreErrors)
         errno = 0;
         if (d.exists(path) && !d.rmdir(dir)) {
             const QString errorMessage = QCoreApplication::translate("QInstaller",
-                "Cannot remove directory \"%1\": %2").arg(QDir::toNativeSeparators(dir),
-                                                          errnoToQString(errno));
+                "Could not remove folder %1: %2").arg(dir, errnoToQString(errno));
             if (!ignoreErrors)
                 throw Error(errorMessage);
-            qWarning().noquote() << errorMessage;
+            qWarning() << errorMessage;
         }
     }
 }
@@ -239,7 +228,7 @@ void QInstaller::removeDirectory(const QString &path, bool ignoreErrors)
 class RemoveDirectoryThread : public QThread
 {
 public:
-    explicit RemoveDirectoryThread(const QString &path, bool ignoreErrors = false, QObject *parent = nullptr)
+    explicit RemoveDirectoryThread(const QString &path, bool ignoreErrors = false, QObject *parent = 0)
         : QThread(parent)
         , p(path)
         , ignore(ignoreErrors)
@@ -275,7 +264,7 @@ void QInstaller::removeDirectoryThreaded(const QString &path, bool ignoreErrors)
 {
     RemoveDirectoryThread thread(path, ignoreErrors);
     QEventLoop loop;
-    QObject::connect(&thread, &RemoveDirectoryThread::finished, &loop, &QEventLoop::quit);
+    QObject::connect(&thread, SIGNAL(finished()), &loop, SLOT(quit()));
     thread.start();
     loop.exec();
     if (!thread.error().isEmpty())
@@ -298,8 +287,8 @@ void QInstaller::copyDirectoryContents(const QString &sourceDir, const QString &
     Q_ASSERT(QFileInfo(sourceDir).isDir());
     Q_ASSERT(!QFileInfo(targetDir).exists() || QFileInfo(targetDir).isDir());
     if (!QDir().mkpath(targetDir)) {
-        throw Error(QCoreApplication::translate("QInstaller", "Cannot create directory \"%1\".")
-            .arg(QDir::toNativeSeparators(targetDir)));
+        throw Error(QCoreApplication::translate("QInstaller", "Could not create folder %1")
+            .arg(targetDir));
     }
     QDirIterator it(sourceDir, QDir::NoDotAndDotDot | QDir::AllEntries);
     while (it.hasNext()) {
@@ -312,10 +301,8 @@ void QInstaller::copyDirectoryContents(const QString &sourceDir, const QString &
             const QString target = QDir(targetDir).absoluteFilePath(i.fileName());
             if (!f.copy(target)) {
                 throw Error(QCoreApplication::translate("QInstaller",
-                    "Cannot copy file from \"%1\" to \"%2\": %3").arg(
-                                QDir::toNativeSeparators(f.fileName()),
-                                QDir::toNativeSeparators(target),
-                                f.errorString()));
+                    "Could not copy file from %1 to %2: %3").arg(f.fileName(), target,
+                    f.errorString()));
             }
         }
     }
@@ -326,8 +313,8 @@ void QInstaller::moveDirectoryContents(const QString &sourceDir, const QString &
     Q_ASSERT(QFileInfo(sourceDir).isDir());
     Q_ASSERT(!QFileInfo(targetDir).exists() || QFileInfo(targetDir).isDir());
     if (!QDir().mkpath(targetDir)) {
-        throw Error(QCoreApplication::translate("QInstaller", "Cannot create directory \"%1\".")
-            .arg(QDir::toNativeSeparators(targetDir)));
+        throw Error(QCoreApplication::translate("QInstaller", "Could not create folder %1")
+            .arg(targetDir));
     }
     QDirIterator it(sourceDir, QDir::NoDotAndDotDot | QDir::AllEntries);
     while (it.hasNext()) {
@@ -343,10 +330,8 @@ void QInstaller::moveDirectoryContents(const QString &sourceDir, const QString &
             const QString target = QDir(targetDir).absoluteFilePath(i.fileName());
             if (!f.rename(target)) {
                 throw Error(QCoreApplication::translate("QInstaller",
-                    "Cannot move file from \"%1\" to \"%2\": %3").arg(
-                                QDir::toNativeSeparators(f.fileName()),
-                                QDir::toNativeSeparators(target),
-                                f.errorString()));
+                    "Could not move file from %1 to %2: %3").arg(f.fileName(), target,
+                    f.errorString()));
             }
         }
     }
@@ -356,8 +341,8 @@ void QInstaller::mkdir(const QString &path)
 {
     errno = 0;
     if (!QDir().mkdir(QFileInfo(path).absoluteFilePath())) {
-        throw Error(QCoreApplication::translate("QInstaller", "Cannot create directory \"%1\": %2")
-            .arg(QDir::toNativeSeparators(path), errnoToQString(errno)));
+        throw Error(QCoreApplication::translate("QInstaller", "Could not create folder %1: %2")
+            .arg(path, errnoToQString(errno)));
     }
 }
 
@@ -365,8 +350,8 @@ void QInstaller::mkpath(const QString &path)
 {
     errno = 0;
     if (!QDir().mkpath(QFileInfo(path).absoluteFilePath())) {
-        throw Error(QCoreApplication::translate("QInstaller", "Cannot create directory \"%1\": %2")
-            .arg(QDir::toNativeSeparators(path), errnoToQString(errno)));
+        throw Error(QCoreApplication::translate("QInstaller", "Could not create folder %1: %2")
+            .arg(path, errnoToQString(errno)));
     }
 }
 
@@ -376,7 +361,7 @@ QString QInstaller::generateTemporaryFileName(const QString &templ)
         QTemporaryFile f;
         if (!f.open()) {
             throw Error(QCoreApplication::translate("QInstaller",
-                "Cannot open temporary file: %1").arg(f.errorString()));
+                "Could not open temporary file: %1").arg(f.errorString()));
         }
         return f.fileName();
     }
@@ -395,7 +380,7 @@ QString QInstaller::generateTemporaryFileName(const QString &templ)
     QFile f(tmp.arg(templ, suffix).arg(count));
     if (!f.open(QIODevice::WriteOnly)) {
         throw Error(QCoreApplication::translate("QInstaller",
-            "Cannot open temporary file for template %1: %2").arg(templ, f.errorString()));
+            "Could not open temporary file for template %1: %2").arg(templ, f.errorString()));
     }
     f.remove();
     return f.fileName();
@@ -411,7 +396,7 @@ QString QInstaller::getShortPathName(const QString &name)
 
     // Determine length, then convert.
     const LPCTSTR nameC = reinterpret_cast<LPCTSTR>(name.utf16()); // MinGW
-    const DWORD length = GetShortPathName(nameC, nullptr, 0);
+    const DWORD length = GetShortPathName(nameC, NULL, 0);
     if (length == 0)
         return name;
     QScopedArrayPointer<TCHAR> buffer(new TCHAR[length]);
@@ -427,7 +412,7 @@ QString QInstaller::getLongPathName(const QString &name)
 
     // Determine length, then convert.
     const LPCTSTR nameC = reinterpret_cast<LPCTSTR>(name.utf16()); // MinGW
-    const DWORD length = GetLongPathName(nameC, nullptr, 0);
+    const DWORD length = GetLongPathName(nameC, NULL, 0);
     if (length == 0)
         return name;
     QScopedArrayPointer<TCHAR> buffer(new TCHAR[length]);
@@ -496,13 +481,14 @@ void QInstaller::setApplicationIcon(const QString &application, const QString &i
 {
     QFile iconFile(icon);
     if (!iconFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "Cannot use" << icon << "as an application icon:" << iconFile.errorString();
+        qWarning() << QString::fromLatin1("Could not use '%1' as application icon: %2.")
+            .arg(icon, iconFile.errorString());
         return;
     }
 
     if (QImageReader::imageFormat(icon) != "ico") {
-        qWarning() << "Cannot use" << icon << "as an application icon, unsupported format"
-                   << QImageReader::imageFormat(icon).constData();
+        qWarning() << QString::fromLatin1("Could not use '%1' as application icon, unsupported format %2.")
+            .arg(icon, QLatin1String(QImageReader::imageFormat(icon)));
         return;
     }
 
@@ -587,20 +573,4 @@ bool QInstaller::isInBundle(const QString &path, QString *bundlePath)
     Q_UNUSED(bundlePath)
 #endif
     return false;
-}
-
-/*!
-    Replaces the path \a before with the path \a after at the beginning of \a path and returns
-    the replaced path. If \a before cannot be found in \a path, the original value is returned.
-*/
-QString QInstaller::replacePath(const QString &path, const QString &before, const QString &after)
-{
-    if (path.isEmpty() || before.isEmpty())
-        return path;
-
-    QString pathToPatch = QDir::cleanPath(path);
-    const QString pathToReplace = QDir::cleanPath(before);
-    if (pathToPatch.startsWith(pathToReplace))
-        return QDir::cleanPath(after) + pathToPatch.mid(pathToReplace.size());
-    return path;
 }

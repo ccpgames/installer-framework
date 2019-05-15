@@ -31,7 +31,6 @@
 #include <scriptengine.h>
 #include <packagemanagerpagefactory.h>
 #include <productkeycheck.h>
-#include <settings.h>
 
 using namespace QInstaller;
 
@@ -39,7 +38,7 @@ using namespace QInstaller;
 // -- InstallerGui
 
 InstallerGui::InstallerGui(PackageManagerCore *core)
-    : PackageManagerGui(core, nullptr)
+    : PackageManagerGui(core, 0)
 {
     ProductKeyCheck *checker = ProductKeyCheck::instance();
     foreach (const int id, checker->registeredPages()) {
@@ -71,7 +70,7 @@ InstallerGui::InstallerGui(PackageManagerCore *core)
 // -- MaintenanceGui
 
 MaintenanceGui::MaintenanceGui(PackageManagerCore *core)
-    : PackageManagerGui(core, nullptr)
+    : PackageManagerGui(core, 0)
 {
     ProductKeyCheck *checker = ProductKeyCheck::instance();
     foreach (const int id, checker->registeredPages()) {
@@ -82,24 +81,17 @@ MaintenanceGui::MaintenanceGui(PackageManagerCore *core)
     }
 
     IntroductionPage *intro = new IntroductionPage(core);
-    connect(intro, &IntroductionPage::packageManagerCoreTypeChanged,
-            this, &MaintenanceGui::updateRestartPage);
+    connect(intro, SIGNAL(packageManagerCoreTypeChanged()), this, SLOT(updateRestartPage()));
 
-    if (!core->isOfflineOnly() || validRepositoriesAvailable()) {
-        setPage(PackageManagerCore::Introduction, intro);
-        setPage(PackageManagerCore::ComponentSelection, new ComponentSelectionPage(core));
-        setPage(PackageManagerCore::LicenseCheck, new LicenseAgreementPage(core));
-    } else {
-        core->setUninstaller();
-        core->setCompleteUninstallation(true);
-    }
-
+    setPage(PackageManagerCore::Introduction, intro);
+    setPage(PackageManagerCore::ComponentSelection, new ComponentSelectionPage(core));
+    setPage(PackageManagerCore::LicenseCheck, new LicenseAgreementPage(core));
     setPage(PackageManagerCore::ReadyForInstallation, new ReadyForInstallationPage(core));
     setPage(PackageManagerCore::PerformInstallation, new PerformInstallationPage(core));
     setPage(PackageManagerCore::InstallationFinished, new FinishedPage(core));
 
     RestartPage *p = new RestartPage(core);
-    connect(p, &RestartPage::restart, this, &PackageManagerGui::gotRestarted);
+    connect(p, SIGNAL(restart()), this, SIGNAL(gotRestarted()));
     setPage(PackageManagerCore::InstallationFinished + 1, p);
 
     if (core->isUninstaller())
@@ -116,14 +108,4 @@ void MaintenanceGui::updateRestartPage()
 {
     wizardPageVisibilityChangeRequested((packageManagerCore()->isUninstaller() ? false : true),
         PackageManagerCore::InstallationFinished + 1);
-}
-
-bool MaintenanceGui::validRepositoriesAvailable() const
-{
-    foreach (const Repository &repo, packageManagerCore()->settings().repositories()) {
-        if (repo.isEnabled() && repo.isValid()) {
-            return true;
-        }
-    }
-    return false;
 }

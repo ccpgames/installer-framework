@@ -27,7 +27,7 @@
 **************************************************************************/
 #include "settingsoperation.h"
 #include "packagemanagercore.h"
-#include "updateoperations.h"
+#include "kdupdaterupdateoperations.h"
 #include "qsettingswrapper.h"
 
 #include <QDir>
@@ -35,8 +35,7 @@
 
 using namespace QInstaller;
 
-SettingsOperation::SettingsOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
+SettingsOperation::SettingsOperation()
 {
     setName(QLatin1String("Settings"));
 }
@@ -64,7 +63,7 @@ bool SettingsOperation::checkArguments()
 
     if (!missingArguments.isEmpty()) {
         setError(InvalidArguments);
-        setErrorString(tr("Missing argument(s) \"%1\" calling %2 with arguments \"%3\".").arg(
+        setErrorString(tr("Missing argument(s) '%1' calling '%2' with arguments '%3'.").arg(
             missingArguments.join(QLatin1String("; ")), name(), arguments().join(QLatin1String("; "))));
         return false;
     }
@@ -74,7 +73,7 @@ bool SettingsOperation::checkArguments()
 
     if (!possibleMethodValues.contains(method)) {
         setError(InvalidArguments);
-        setErrorString(tr("Current method argument calling \"%1\" with arguments \"%2\" is not "
+        setErrorString(tr("Current method argument calling '%1' with arguments '%2' is not "
             "supported. Please use set, remove, add_array_value or remove_array_value.").arg(name(),
             arguments().join(QLatin1String("; "))));
         return false;
@@ -178,14 +177,14 @@ bool SettingsOperation::undoOperation()
     if (cleanUp) {
         QFile settingsFile(path);
         if (!settingsFile.remove())
-            qWarning().noquote() << settingsFile.errorString();
+            qWarning() << settingsFile.errorString();
         if (!value(QLatin1String("createddir")).toString().isEmpty()) {
             KDUpdater::MkdirOperation mkDirOperation;
             mkDirOperation.setArguments(QStringList() << QFileInfo(path).absolutePath());
             mkDirOperation.setValue(QLatin1String("createddir"), value(QLatin1String("createddir")));
 
             if (!mkDirOperation.undoOperation()) {
-                qWarning().noquote() << mkDirOperation.errorString();
+                qWarning() << mkDirOperation.errorString();
             }
         }
     }
@@ -196,3 +195,9 @@ bool SettingsOperation::testOperation()
 {
     return true;
 }
+
+Operation *SettingsOperation::clone() const
+{
+    return new SettingsOperation();
+}
+

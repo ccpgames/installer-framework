@@ -11,23 +11,16 @@ CBindReverseConverter::CBindReverseConverter(const CBindInfo &srcBindInfo):
 {
   srcBindInfo.GetNumStreams(NumSrcInStreams, _numSrcOutStreams);
 
-  UInt32 j;
-  _srcInToDestOutMap.ClearAndSetSize(NumSrcInStreams);
-  DestOutToSrcInMap.ClearAndSetSize(NumSrcInStreams);
-
+  UInt32  j;
   for (j = 0; j < NumSrcInStreams; j++)
   {
-    _srcInToDestOutMap[j] = 0;
-    DestOutToSrcInMap[j] = 0;
+    _srcInToDestOutMap.Add(0);
+    DestOutToSrcInMap.Add(0);
   }
-
-  _srcOutToDestInMap.ClearAndSetSize(_numSrcOutStreams);
-  _destInToSrcOutMap.ClearAndSetSize(_numSrcOutStreams);
-
   for (j = 0; j < _numSrcOutStreams; j++)
   {
-    _srcOutToDestInMap[j] = 0;
-    _destInToSrcOutMap[j] = 0;
+    _srcOutToDestInMap.Add(0);
+    _destInToSrcOutMap.Add(0);
   }
 
   UInt32 destInOffset = 0;
@@ -41,7 +34,7 @@ CBindReverseConverter::CBindReverseConverter(const CBindInfo &srcBindInfo):
 
     srcInOffset -= srcCoderInfo.NumInStreams;
     srcOutOffset -= srcCoderInfo.NumOutStreams;
-
+    
     UInt32 j;
     for (j = 0; j < srcCoderInfo.NumInStreams; j++, destOutOffset++)
     {
@@ -60,57 +53,66 @@ CBindReverseConverter::CBindReverseConverter(const CBindInfo &srcBindInfo):
 
 void CBindReverseConverter::CreateReverseBindInfo(CBindInfo &destBindInfo)
 {
-  destBindInfo.Coders.ClearAndReserve(_srcBindInfo.Coders.Size());
-  destBindInfo.BindPairs.ClearAndReserve(_srcBindInfo.BindPairs.Size());
-  destBindInfo.InStreams.ClearAndReserve(_srcBindInfo.OutStreams.Size());
-  destBindInfo.OutStreams.ClearAndReserve(_srcBindInfo.InStreams.Size());
+  destBindInfo.Coders.Clear();
+  destBindInfo.BindPairs.Clear();
+  destBindInfo.InStreams.Clear();
+  destBindInfo.OutStreams.Clear();
 
-  unsigned i;
-  for (i = _srcBindInfo.Coders.Size(); i != 0;)
+  int i;
+  for (i = _srcBindInfo.Coders.Size() - 1; i >= 0; i--)
   {
-    i--;
     const CCoderStreamsInfo &srcCoderInfo = _srcBindInfo.Coders[i];
     CCoderStreamsInfo destCoderInfo;
     destCoderInfo.NumInStreams = srcCoderInfo.NumOutStreams;
     destCoderInfo.NumOutStreams = srcCoderInfo.NumInStreams;
-    destBindInfo.Coders.AddInReserved(destCoderInfo);
+    destBindInfo.Coders.Add(destCoderInfo);
   }
-  for (i = _srcBindInfo.BindPairs.Size(); i != 0;)
+  for (i = _srcBindInfo.BindPairs.Size() - 1; i >= 0; i--)
   {
-    i--;
     const CBindPair &srcBindPair = _srcBindInfo.BindPairs[i];
     CBindPair destBindPair;
     destBindPair.InIndex = _srcOutToDestInMap[srcBindPair.OutIndex];
     destBindPair.OutIndex = _srcInToDestOutMap[srcBindPair.InIndex];
-    destBindInfo.BindPairs.AddInReserved(destBindPair);
+    destBindInfo.BindPairs.Add(destBindPair);
   }
   for (i = 0; i < _srcBindInfo.InStreams.Size(); i++)
-    destBindInfo.OutStreams.AddInReserved(_srcInToDestOutMap[_srcBindInfo.InStreams[i]]);
+    destBindInfo.OutStreams.Add(_srcInToDestOutMap[_srcBindInfo.InStreams[i]]);
   for (i = 0; i < _srcBindInfo.OutStreams.Size(); i++)
-    destBindInfo.InStreams.AddInReserved(_srcOutToDestInMap[_srcBindInfo.OutStreams[i]]);
+    destBindInfo.InStreams.Add(_srcOutToDestInMap[_srcBindInfo.OutStreams[i]]);
 }
 
-void SetSizes(const UInt64 **srcSizes, CRecordVector<UInt64> &sizes,
+CCoderInfo2::CCoderInfo2(UInt32 numInStreams, UInt32 numOutStreams):
+    NumInStreams(numInStreams),
+    NumOutStreams(numOutStreams)
+{
+  InSizes.Reserve(NumInStreams);
+  InSizePointers.Reserve(NumInStreams);
+  OutSizes.Reserve(NumOutStreams);
+  OutSizePointers.Reserve(NumOutStreams);
+}
+
+static void SetSizes(const UInt64 **srcSizes, CRecordVector<UInt64> &sizes,
     CRecordVector<const UInt64 *> &sizePointers, UInt32 numItems)
 {
-  sizes.ClearAndSetSize(numItems);
-  sizePointers.ClearAndSetSize(numItems);
-  for (UInt32 i = 0; i < numItems; i++)
+  sizes.Clear();
+  sizePointers.Clear();
+  for(UInt32 i = 0; i < numItems; i++)
   {
-    if (!srcSizes || !srcSizes[i])
+    if (srcSizes == 0 || srcSizes[i] == NULL)
     {
-      sizes[i] = 0;
-      sizePointers[i] = NULL;
+      sizes.Add(0);
+      sizePointers.Add(NULL);
     }
     else
     {
-      sizes[i] = *(srcSizes[i]);
-      sizePointers[i] = &sizes[i];
+      sizes.Add(*srcSizes[i]);
+      sizePointers.Add(&sizes.Back());
     }
   }
 }
 
-void CCoderInfo2::SetCoderInfo(const UInt64 **inSizes, const UInt64 **outSizes)
+void CCoderInfo2::SetCoderInfo(const UInt64 **inSizes,
+      const UInt64 **outSizes)
 {
   SetSizes(inSizes, InSizes, InSizePointers, NumInStreams);
   SetSizes(outSizes, OutSizes, OutSizePointers, NumOutStreams);

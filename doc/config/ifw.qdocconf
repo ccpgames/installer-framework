@@ -1,3 +1,4 @@
+include($QT_INSTALL_DOCS/global/macros.qdocconf)
 include($QT_INSTALL_DOCS/global/qt-cpp-defines.qdocconf)
 include($QT_INSTALL_DOCS/global/compat.qdocconf)
 include($QT_INSTALL_DOCS/global/fileextensions.qdocconf)
@@ -7,7 +8,8 @@ project     = "Qt Installer Framework"
 description = "Qt Installer Framework Manual"
 url         = http://qt-project.org/doc/qtinstallerframework/
 
-sourcedirs += ../../src/libs/installer ../../src/libs/kdtools ../includes
+sourcedirs += includes
+sourcedirs += ../../src/libs/installer ../../src/libs/kdtools
 headerdirs += ../../src/libs/installer ../../src/libs/kdtools
 
 imagedirs = $SRCDIR/images $SRCDIR/templates/images
@@ -43,11 +45,6 @@ qhp.InstallerFramework.subprojects.manual.indexTitle = Qt Installer Framework Ma
 qhp.InstallerFramework.subprojects.manual.type = manual
 
 macro.ifwversion = $IFW_VERSION
-
-# commands borrowed from qtbase/doc/global/macros.qdocconf
-
-macro.gui               = "\\b"
-macro.key               = "\\b"
 
 # Doxygen compatibility commands
 

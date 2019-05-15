@@ -2,8 +2,6 @@
 
 #include "StdAfx.h"
 
-#include <stdlib.h>
-
 #include "../../../C/Alloc.h"
 
 #include "StreamObjects.h"
@@ -14,8 +12,8 @@ STDMETHODIMP CBufInStream::Read(void *data, UInt32 size, UInt32 *processedSize)
     *processedSize = 0;
   if (size == 0)
     return S_OK;
-  if (_pos >= _size)
-    return S_OK;
+  if (_pos > _size)
+    return E_FAIL;
   size_t rem = _size - (size_t)_pos;
   if (rem > size)
     rem = (size_t)size;
@@ -28,51 +26,26 @@ STDMETHODIMP CBufInStream::Read(void *data, UInt32 size, UInt32 *processedSize)
 
 STDMETHODIMP CBufInStream::Seek(Int64 offset, UInt32 seekOrigin, UInt64 *newPosition)
 {
-  switch (seekOrigin)
+  switch(seekOrigin)
   {
-    case STREAM_SEEK_SET: break;
-    case STREAM_SEEK_CUR: offset += _pos; break;
-    case STREAM_SEEK_END: offset += _size; break;
+    case STREAM_SEEK_SET: _pos = offset; break;
+    case STREAM_SEEK_CUR: _pos += offset; break;
+    case STREAM_SEEK_END: _pos = _size + offset; break;
     default: return STG_E_INVALIDFUNCTION;
   }
-  if (offset < 0)
-    return HRESULT_WIN32_ERROR_NEGATIVE_SEEK;
-  _pos = offset;
   if (newPosition)
-    *newPosition = offset;
+    *newPosition = _pos;
   return S_OK;
 }
 
-/*
-void Create_BufInStream_WithReference(const void *data, size_t size, ISequentialInStream **stream)
-{
-  CBufInStream *inStreamSpec = new CBufInStream;
-  CMyComPtr<ISequentialInStream> streamTemp = inStreamSpec;
-  inStreamSpec->Init((const Byte *)data, size);
-  *stream = streamTemp.Detach();
-}
-*/
-
-void Create_BufInStream_WithNewBuf(const void *data, size_t size, ISequentialInStream **stream)
-{
-  CReferenceBuf *referenceBuf = new CReferenceBuf;
-  CMyComPtr<IUnknown> ref = referenceBuf;
-  referenceBuf->Buf.CopyFrom((const Byte *)data, size);
-
-  CBufInStream *inStreamSpec = new CBufInStream;
-  CMyComPtr<ISequentialInStream> streamTemp = inStreamSpec;
-  inStreamSpec->Init(referenceBuf);
-  *stream = streamTemp.Detach();
-}
-
-void CByteDynBuffer::Free() throw()
+void CByteDynBuffer::Free()
 {
   free(_buf);
   _buf = 0;
   _capacity = 0;
 }
 
-bool CByteDynBuffer::EnsureCapacity(size_t cap) throw()
+bool CByteDynBuffer::EnsureCapacity(size_t cap)
 {
   if (cap <= _capacity)
     return true;
@@ -104,7 +77,8 @@ Byte *CDynBufSeqOutStream::GetBufPtrForWriting(size_t addSize)
 
 void CDynBufSeqOutStream::CopyToBuffer(CByteBuffer &dest) const
 {
-  dest.CopyFrom((const Byte *)_buffer, _size);
+  dest.SetCapacity(_size);
+  memcpy(dest, _buffer, _size);
 }
 
 STDMETHODIMP CDynBufSeqOutStream::Write(const void *data, UInt32 size, UInt32 *processedSize)
@@ -147,7 +121,7 @@ STDMETHODIMP CSequentialOutStreamSizeCount::Write(const void *data, UInt32 size,
 
 static const UInt64 kEmptyTag = (UInt64)(Int64)-1;
 
-void CCachedInStream::Free() throw()
+void CCachedInStream::Free()
 {
   MyFree(_tags);
   _tags = 0;
@@ -155,7 +129,7 @@ void CCachedInStream::Free() throw()
   _data = 0;
 }
 
-bool CCachedInStream::Alloc(unsigned blockSizeLog, unsigned numBlocksLog) throw()
+bool CCachedInStream::Alloc(unsigned blockSizeLog, unsigned numBlocksLog)
 {
   unsigned sizeLog = blockSizeLog + numBlocksLog;
   if (sizeLog >= sizeof(size_t) * 8)
@@ -181,7 +155,7 @@ bool CCachedInStream::Alloc(unsigned blockSizeLog, unsigned numBlocksLog) throw(
   return true;
 }
 
-void CCachedInStream::Init(UInt64 size) throw()
+void CCachedInStream::Init(UInt64 size)
 {
   _size = size;
   _pos = 0;
@@ -196,8 +170,8 @@ STDMETHODIMP CCachedInStream::Read(void *data, UInt32 size, UInt32 *processedSiz
     *processedSize = 0;
   if (size == 0)
     return S_OK;
-  if (_pos >= _size)
-    return S_OK;
+  if (_pos > _size)
+    return E_FAIL;
 
   {
     UInt64 rem = _size - _pos;
@@ -231,20 +205,17 @@ STDMETHODIMP CCachedInStream::Read(void *data, UInt32 size, UInt32 *processedSiz
 
   return S_OK;
 }
-
+ 
 STDMETHODIMP CCachedInStream::Seek(Int64 offset, UInt32 seekOrigin, UInt64 *newPosition)
 {
-  switch (seekOrigin)
+  switch(seekOrigin)
   {
-    case STREAM_SEEK_SET: break;
-    case STREAM_SEEK_CUR: offset += _pos; break;
-    case STREAM_SEEK_END: offset += _size; break;
+    case STREAM_SEEK_SET: _pos = offset; break;
+    case STREAM_SEEK_CUR: _pos = _pos + offset; break;
+    case STREAM_SEEK_END: _pos = _size + offset; break;
     default: return STG_E_INVALIDFUNCTION;
   }
-  if (offset < 0)
-    return HRESULT_WIN32_ERROR_NEGATIVE_SEEK;
-  _pos = offset;
-  if (newPosition)
-    *newPosition = offset;
+  if (newPosition != 0)
+    *newPosition = _pos;
   return S_OK;
 }

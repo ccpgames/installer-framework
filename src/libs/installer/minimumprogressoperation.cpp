@@ -30,8 +30,7 @@
 
 using namespace QInstaller;
 
-MinimumProgressOperation::MinimumProgressOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
+MinimumProgressOperation::MinimumProgressOperation()
 {
     // This shouldn't be callable by script, but we need a name for the binary format
     setName(QLatin1String("MinimumProgress"));
@@ -57,3 +56,9 @@ bool MinimumProgressOperation::testOperation()
 {
     return true;
 }
+
+Operation *MinimumProgressOperation::clone() const
+{
+    return new MinimumProgressOperation();
+}
+

@@ -40,12 +40,13 @@ class INSTALLER_EXPORT SimpleMoveFileOperation : public QObject, public Operatio
     Q_OBJECT
 
 public:
-    explicit SimpleMoveFileOperation(PackageManagerCore *core);
+    SimpleMoveFileOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation *clone() const;
 
 Q_SIGNALS:
     void outputTextChanged(const QString &progress);

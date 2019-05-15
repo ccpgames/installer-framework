@@ -48,21 +48,20 @@ private slots:
 
     void testMissingArguments()
     {
-        ExtractArchiveOperation op(nullptr);
+        ExtractArchiveOperation op;
 
         QVERIFY(op.testOperation());
         QVERIFY(!op.performOperation());
         //QVERIFY(!op.undoOperation());     Can't test for failure as we run into Q_ASSERT
 
         QCOMPARE(UpdateOperation::Error(op.error()), UpdateOperation::InvalidArguments);
-        QCOMPARE(op.errorString(), QString("Invalid arguments in Extract: "
-                                           "0 arguments given, exactly 2 arguments expected."));
+        QCOMPARE(op.errorString(), QString("Invalid arguments in Extract: 0 arguments given, exactly 2 expected."));
 
     }
 
     void testExtractOperationValidFile()
     {
-        ExtractArchiveOperation op(nullptr);
+        ExtractArchiveOperation op;
         op.setArguments(QStringList() << ":///data/valid.7z" << QDir::tempPath());
 
         QVERIFY(op.testOperation());
@@ -72,7 +71,7 @@ private slots:
 
     void testExtractOperationInvalidFile()
     {
-        ExtractArchiveOperation op(nullptr);
+        ExtractArchiveOperation op;
         op.setArguments(QStringList() << ":///data/invalid.7z" << QDir::tempPath());
 
         QVERIFY(op.testOperation());
@@ -80,8 +79,7 @@ private slots:
         QVERIFY(op.undoOperation());
 
         QCOMPARE(UpdateOperation::Error(op.error()), UpdateOperation::UserDefinedError);
-        QCOMPARE(op.errorString(), QString("Error while extracting archive \":///data/invalid.7z\": "
-                                           "Cannot open archive \":///data/invalid.7z\"."));
+        QCOMPARE(op.errorString(), QString("Error while extracting ':///data/invalid.7z': Could not open archive"));
     }
 };
 

@@ -77,10 +77,6 @@ class IconCache
 {
 public:
     IconCache() {
-        m_icons.insert(ComponentModelHelper::Install, QIcon(QLatin1String(":/install.png")));
-        m_icons.insert(ComponentModelHelper::Uninstall, QIcon(QLatin1String(":/uninstall.png")));
-        m_icons.insert(ComponentModelHelper::KeepInstalled, QIcon(QLatin1String(":/keepinstalled.png")));
-        m_icons.insert(ComponentModelHelper::KeepUninstalled, QIcon(QLatin1String(":/keepuninstalled.png")));
     }
 
     QIcon icon(ComponentModelHelper::InstallAction action) const {
@@ -101,7 +97,7 @@ ComponentModel::ComponentModel(int columns, PackageManagerCore *core)
     , m_modelState(DefaultChecked)
 {
     m_headerData.insert(0, columns, QVariant());
-    connect(this, &QAbstractItemModel::modelReset, this, &ComponentModel::slotModelReset);
+    connect(this, SIGNAL(modelReset()), this, SLOT(slotModelReset()));
 }
 
 /*!
@@ -222,14 +218,10 @@ QVariant ComponentModel::data(const QModelIndex &index, int role) const
                 return component->data(Qt::UserRole + index.column());
         }
         if (role == Qt::CheckStateRole) {
-            if (!component->isCheckable() || !component->autoDependencies().isEmpty() || component->isUnstable())
+            if (!component->isCheckable())
                 return QVariant();
-        }
-        if (role == ComponentModelHelper::ExpandedByDefault) {
-            return component->isExpandedByDefault();
-        }
-        if (component->isUnstable() && role == Qt::ForegroundRole) {
-            return QVariant(QColor(Qt::darkGray));
+            if (!component->autoDependencies().isEmpty())
+                return QVariant();
         }
         return component->data(role);
     }
@@ -378,7 +370,7 @@ Component *ComponentModel::componentFromIndex(const QModelIndex &index) const
 {
     if (index.isValid())
         return static_cast<Component*>(index.internalPointer());
-    return nullptr;
+    return 0;
 }
 
 
@@ -411,7 +403,7 @@ void ComponentModel::setRootComponents(QList<QInstaller::Component*> rootCompone
     // show virtual components only in case we run as updater or if the core engine is set to show them
     const bool showVirtuals = m_core->isUpdater() || m_core->virtualComponentsVisible();
     foreach (Component *const component, rootComponents) {
-        connect(component, &Component::virtualStateChanged, this, &ComponentModel::onVirtualStateChanged);
+        connect(component, SIGNAL(virtualStateChanged()), this, SLOT(onVirtualStateChanged()));
         if ((!showVirtuals) && component->isVirtual())
             continue;
         m_rootComponentList.append(component);
@@ -471,7 +463,7 @@ void ComponentModel::slotModelReset()
     foreach (Component *const component, components) {
         if (component->checkState() == Qt::Checked)
             checked.insert(component);
-        connect(component, &Component::virtualStateChanged, this, &ComponentModel::onVirtualStateChanged);
+        connect(component, SIGNAL(virtualStateChanged()), this, SLOT(onVirtualStateChanged()));
     }
 
     updateCheckedState(checked, Qt::Checked);
@@ -579,13 +571,7 @@ QSet<QModelIndex> ComponentModel::updateCheckedState(const ComponentSet &compone
     // we can start in descending order to check node and tri-state nodes properly
     for (int i = sortedNodes.count(); i > 0; i--) {
         Component * const node = sortedNodes.at(i - 1);
-
-        bool checkable = true;
-        if (node->value(scCheckable, scTrue).toLower() == scFalse) {
-            checkable = false;
-        }
-
-       if ((!node->isCheckable() && checkable) || !node->isEnabled() || !node->autoDependencies().isEmpty() || node->isUnstable())
+        if (!node->isCheckable() || !node->isEnabled() || !node->autoDependencies().isEmpty())
             continue;
 
         Qt::CheckState newState = state;

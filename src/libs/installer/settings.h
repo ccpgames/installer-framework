@@ -31,7 +31,6 @@
 
 #include "constants.h"
 #include "installer_global.h"
-#include "repositorycategory.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QSharedDataPointer>
@@ -84,7 +83,6 @@ public:
     QString installerWindowIcon() const;
     QString systemIconSuffix() const;
     QString wizardStyle() const;
-    QString styleSheet() const;
     QString titleColor() const;
     int wizardDefaultWidth() const;
     int wizardDefaultHeight() const;
@@ -108,18 +106,14 @@ public:
     QString configurationFileName() const;
 
     bool createLocalRepository() const;
-    bool installActionColumnVisible() const;
 
     bool dependsOnLocalInstallerBinary() const;
     bool hasReplacementRepos() const;
     QSet<Repository> repositories() const;
 
     QSet<Repository> defaultRepositories() const;
-    QSet<RepositoryCategory> repositoryCategories() const;
-    QMap<QString, RepositoryCategory> organizedRepositoryCategories() const;
     void setDefaultRepositories(const QSet<Repository> &repositories);
     void addDefaultRepositories(const QSet<Repository> &repositories);
-    void addRepositoryCategories(const QSet<RepositoryCategory> &repositories);
     Settings::Update updateDefaultRepositories(const RepoHash &updates);
 
     QSet<Repository> temporaryRepositories() const;
@@ -133,7 +127,6 @@ public:
 
     bool allowSpaceInPath() const;
     bool allowNonAsciiCharacters() const;
-    bool disableAuthorizationFallback() const;
 
     bool containsValue(const QString &key) const;
     QVariant value(const QString &key, const QVariant &defaultValue = QVariant()) const;
@@ -155,17 +148,6 @@ public:
     void setTranslations(const QStringList &translations);
 
     QString controlScript() const;
-
-    bool supportsModify() const;
-
-    bool allowUnstableComponents() const;
-    void setAllowUnstableComponents(bool allow);
-
-    bool saveDefaultRepositories() const;
-    void setSaveDefaultRepositories(bool save);
-
-    QString repositoryCategoryDisplayName() const;
-    void setRepositoryCategoryDisplayName(const QString &displayName);
 
 private:
     class Private;

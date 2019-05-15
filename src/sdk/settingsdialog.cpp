@@ -31,7 +31,6 @@
 
 #include <packagemanagercore.h>
 #include <productkeycheck.h>
-#include <testrepository.h>
 
 #include <QtCore/QFile>
 
@@ -67,7 +66,7 @@ QWidget *PasswordDelegate::createEditor(QWidget *parent, const QStyleOptionViewI
     const
 {
     if (m_disabledEditor)
-        return nullptr;
+        return 0;
 
     QLineEdit *lineEdit = new QLineEdit(parent);
     lineEdit->setEchoMode(m_showPasswords ? QLineEdit::Normal : QLineEdit::Password);
@@ -222,22 +221,14 @@ SettingsDialog::SettingsDialog(PackageManagerCore *core, QWidget *parent)
     m_ui->m_httpProxy->setText(httpProxy.hostName());
     m_ui->m_httpProxyPort->setValue(httpProxy.port());
 
-    connect(m_ui->m_addRepository, &QAbstractButton::clicked,
-            this, &SettingsDialog::addRepository);
-    connect(m_ui->m_showPasswords, &QAbstractButton::clicked,
-            this, &SettingsDialog::updatePasswords);
-    connect(m_ui->m_removeRepository, &QAbstractButton::clicked,
-            this, &SettingsDialog::removeRepository);
-    connect(m_ui->m_useTmpRepositories, &QAbstractButton::clicked,
-            this, &SettingsDialog::useTmpRepositoriesOnly);
-    connect(m_ui->m_repositoriesView, &QTreeWidget::currentItemChanged,
-        this, &SettingsDialog::currentRepositoryChanged);
-    connect(m_ui->m_testRepository, &QAbstractButton::clicked,
-            this, &SettingsDialog::testRepository);
-    connect(m_ui->m_selectAll, &QAbstractButton::clicked,
-            this, &SettingsDialog::selectAll);
-    connect(m_ui->m_deselectAll, &QAbstractButton::clicked,
-            this, &SettingsDialog::deselectAll);
+    connect(m_ui->m_addRepository, SIGNAL(clicked()), this, SLOT(addRepository()));
+    connect(m_ui->m_showPasswords, SIGNAL(clicked()), this, SLOT(updatePasswords()));
+    connect(m_ui->m_removeRepository, SIGNAL(clicked()), this, SLOT(removeRepository()));
+    connect(m_ui->m_useTmpRepositories, SIGNAL(clicked(bool)), this, SLOT(useTmpRepositoriesOnly(bool)));
+    connect(m_ui->m_repositoriesView, SIGNAL(currentItemChanged(QTreeWidgetItem*, QTreeWidgetItem*)),
+        this, SLOT(currentRepositoryChanged(QTreeWidgetItem*, QTreeWidgetItem*)));
+    connect(m_ui->m_testRepository, SIGNAL(clicked()), this, SLOT(testRepository()));
+
     useTmpRepositoriesOnly(settings.hasReplacementRepos());
     m_ui->m_useTmpRepositories->setChecked(settings.hasReplacementRepos());
     m_ui->m_useTmpRepositories->setEnabled(settings.hasReplacementRepos());
@@ -328,36 +319,25 @@ void SettingsDialog::testRepository()
         m_ui->tabWidget->setEnabled(false);
         m_ui->buttonBox->setEnabled(false);
 
-        TestRepository testJob(m_core);
-        testJob.setRepository(current->repository());
-        testJob.start();
-        testJob.waitForFinished();
-        current->setRepository(testJob.repository());
+        m_testRepository.setRepository(current->repository());
+        m_testRepository.start();
+        m_testRepository.waitForFinished();
+        current->setRepository(m_testRepository.repository());
 
-        QMessageBox msgBox(this);
-        msgBox.setIcon(QMessageBox::Question);
-        msgBox.setWindowModality(Qt::WindowModal);
-        msgBox.setDetailedText(testJob.errorString());
+        if (m_testRepository.error() > KDJob::NoError) {
+            QMessageBox msgBox(this);
+            msgBox.setIcon(QMessageBox::Question);
+            msgBox.setWindowModality(Qt::WindowModal);
+            msgBox.setDetailedText(m_testRepository.errorString());
+            msgBox.setText(tr("There was an error testing this repository."));
+            msgBox.setInformativeText(tr("Do you want to disable the tested repository?"));
 
-        const bool isError = (testJob.error() > Job::NoError);
-        const bool isEnabled = current->data(1, Qt::CheckStateRole).toBool();
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            msgBox.setDefaultButton(QMessageBox::Yes);
 
-        msgBox.setText(isError
-            ? tr("An error occurred while testing this repository.")
-            : tr("The repository was tested successfully."));
-
-        const bool showQuestion = (isError == isEnabled);
-        msgBox.setStandardButtons(showQuestion ? QMessageBox::Yes | QMessageBox::No
-            : QMessageBox::Close);
-        msgBox.setDefaultButton(showQuestion ? QMessageBox::Yes : QMessageBox::Close);
-        if (showQuestion) {
-            msgBox.setInformativeText(isEnabled
-                ? tr("Do you want to disable the repository?")
-                : tr("Do you want to enable the repository?")
-            );
+            if (msgBox.exec() == QMessageBox::Yes)
+                current->setData(1, Qt::CheckStateRole, Qt::Unchecked);
         }
-        if (msgBox.exec() == QMessageBox::Yes)
-            current->setData(1, Qt::CheckStateRole, (!isEnabled) ? Qt::Checked : Qt::Unchecked);
 
         m_ui->tabWidget->setEnabled(true);
         m_ui->buttonBox->setEnabled(true);
@@ -406,25 +386,7 @@ void SettingsDialog::currentRepositoryChanged(QTreeWidgetItem *current, QTreeWid
         m_ui->m_addRepository->setEnabled((current != m_rootItems.at(0)) & (index == -1));
     }
 }
-void SettingsDialog::checkSubTree(QTreeWidgetItem *item, Qt::CheckState state)
-{
-    if (item->flags() & Qt::ItemIsUserCheckable)
-        item->setData(1, Qt::CheckStateRole, state);
-    for (int i = 0; i < item->childCount(); i++)
-        checkSubTree(item->child(i), state);
-}
 
-void SettingsDialog::selectAll()
-{
-    for (int i = 0; i < m_ui->m_repositoriesView->topLevelItemCount(); i++)
-        checkSubTree(m_ui->m_repositoriesView->topLevelItem(i), Qt::Checked);
-}
-
-void SettingsDialog::deselectAll()
-{
-    for (int i = 0; i < m_ui->m_repositoriesView->topLevelItemCount(); i++)
-        checkSubTree(m_ui->m_repositoriesView->topLevelItem(i), Qt::Unchecked);
-}
 // -- private
 
 void SettingsDialog::setupRepositoriesTreeWidget()

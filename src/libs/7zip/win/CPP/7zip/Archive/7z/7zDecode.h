@@ -14,7 +14,7 @@
 
 #include "../../Common/CreateCoder.h"
 
-#include "7zIn.h"
+#include "7zItem.h"
 
 namespace NArchive {
 namespace N7z {
@@ -33,14 +33,14 @@ class CDecoder
 {
   bool _bindInfoExPrevIsDefined;
   CBindInfoEx _bindInfoExPrev;
-
+  
   bool _multiThread;
   #ifdef _ST_MODE
   NCoderMixer::CCoderMixer2ST *_mixerCoderSTSpec;
   #endif
   NCoderMixer::CCoderMixer2MT *_mixerCoderMTSpec;
   NCoderMixer::CCoderMixer2 *_mixerCoderCommon;
-
+  
   CMyComPtr<ICompressCoder2> _mixerCoder;
   CObjectVector<CMyComPtr<IUnknown> > _decoders;
   // CObjectVector<CMyComPtr<ICompressCoder2> > _decoders2;
@@ -50,10 +50,13 @@ public:
       DECL_EXTERNAL_CODECS_LOC_VARS
       IInStream *inStream,
       UInt64 startPos,
-      const CFolders &folders, int folderIndex,
+      const UInt64 *packSizes,
+      const CFolder &folder,
       ISequentialOutStream *outStream,
       ICompressProgressInfo *compressProgress
-      _7Z_DECODER_CRYPRO_VARS_DECL
+      #ifndef _NO_CRYPTO
+      , ICryptoGetTextPassword *getTextPasswordSpec, bool &passwordIsDefined
+      #endif
       #if !defined(_7ZIP_ST) && !defined(_SFX)
       , bool mtMode, UInt32 numThreads
       #endif

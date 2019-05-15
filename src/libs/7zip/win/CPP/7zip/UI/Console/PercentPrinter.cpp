@@ -2,18 +2,18 @@
 
 #include "StdAfx.h"
 
-#include "../../../Common/Defs.h"
-#include "../../../Common/IntToString.h"
+#include "Common/IntToString.h"
+#include "Common/MyString.h"
 
 #include "PercentPrinter.h"
 
-static const unsigned kPaddingSize = 2;
-static const unsigned kPercentsSize = 4;
-static const unsigned kMaxExtraSize = kPaddingSize + 32 + kPercentsSize;
+const int kPaddingSize = 2;
+const int kPercentsSize = 4;
+const int kMaxExtraSize = kPaddingSize + 32 + kPercentsSize;
 
-static void ClearPrev(char *p, unsigned num)
+static void ClearPrev(char *p, int num)
 {
-  unsigned i;
+  int i;
   for (i = 0; i < num; i++) *p++ = '\b';
   for (i = 0; i < num; i++) *p++ = ' ';
   for (i = 0; i < num; i++) *p++ = '\b';
@@ -51,30 +51,18 @@ void CPercentPrinter::PrintNewLine()
 void CPercentPrinter::RePrintRatio()
 {
   char s[32];
-  unsigned size;
-  {
-    char c = '%';
-    UInt64 value = 0;
-    if (m_Total == (UInt64)(Int64)-1)
-    {
-      value = m_CurValue >> 20;
-      c = 'M';
-    }
-    else if (m_Total != 0)
-      value = m_CurValue * 100 / m_Total;
-    ConvertUInt64ToString(value, s);
-    size = (unsigned)strlen(s);
-    s[size++] = c;
-    s[size] = '\0';
-  }
+  ConvertUInt64ToString(((m_Total == 0) ? 0 : (m_CurValue * 100 / m_Total)), s);
+  int size = (int)strlen(s);
+  s[size++] = '%';
+  s[size] = '\0';
 
-  unsigned extraSize = kPaddingSize + MyMax(size, kPercentsSize);
+  int extraSize = kPaddingSize + MyMax(size, kPercentsSize);
   if (extraSize < m_NumExtraChars)
     extraSize = m_NumExtraChars;
 
   char fullString[kMaxExtraSize * 3];
   char *p = fullString;
-  unsigned i;
+  int i;
   if (m_NumExtraChars == 0)
   {
     for (i = 0; i < extraSize; i++)
@@ -85,7 +73,7 @@ void CPercentPrinter::RePrintRatio()
   for (i = 0; i < m_NumExtraChars; i++)
     *p++ = '\b';
   m_NumExtraChars = extraSize;
-  for (; size < extraSize; size++)
+  for (; size < m_NumExtraChars; size++)
     *p++ = ' ';
   MyStringCopy(p, s);
   (*OutStream) << fullString;

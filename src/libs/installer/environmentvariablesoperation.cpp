@@ -40,8 +40,7 @@
 using namespace QInstaller;
 using namespace KDUpdater;
 
-EnvironmentVariableOperation::EnvironmentVariableOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
+EnvironmentVariableOperation::EnvironmentVariableOperation()
 {
     setName(QLatin1String("EnvironmentVariable"));
 }
@@ -65,48 +64,6 @@ static void broadcastEnvironmentChange()
 
 namespace {
 
-bool handleRegExpandSz(const QString &regPath, const QString &name,
-                       const QString &value, QString *errorString,
-                       bool *error)
-{
-    bool setAsExpandSZ = false;
-#ifdef Q_OS_WIN
-    // Account for when it is originally REG_EXPAND_SZ as we don't want
-    // to lose this setting (see Path environment variable)
-    const bool isLocalKey = regPath.startsWith(QStringLiteral("HKEY_LOCAL"));
-    HKEY hkey = isLocalKey ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
-    // Drop the HKEY...\\ part
-    const QString keyPath = regPath.mid(isLocalKey ? 19 : 18, -1);
-    HKEY handle;
-    LONG res = RegOpenKeyEx(hkey, reinterpret_cast<const wchar_t *>(keyPath.utf16()), 0,
-                            KEY_READ, &handle);
-    if (res == ERROR_SUCCESS) {
-        DWORD dataType;
-        DWORD dataSize;
-        res = RegQueryValueEx(handle, reinterpret_cast<const wchar_t *>(name.utf16()), nullptr,
-                              &dataType, nullptr, &dataSize);
-        setAsExpandSZ = (res == ERROR_SUCCESS) && (dataType == REG_EXPAND_SZ);
-        if (setAsExpandSZ) {
-            RegCloseKey(handle);
-            res = RegOpenKeyEx(hkey, reinterpret_cast<const wchar_t *>(keyPath.utf16()), 0,
-                               KEY_SET_VALUE, &handle);
-            if (res == ERROR_SUCCESS) {
-                const QByteArray data(reinterpret_cast<const char *>(value.utf16()),
-                                      (value.length() + 1) * 2);
-                res = RegSetValueEx(handle, reinterpret_cast<const wchar_t *>(name.utf16()), 0, REG_EXPAND_SZ,
-                                    reinterpret_cast<const unsigned char*>(data.constData()), data.size());
-                RegCloseKey(handle);
-            }
-            if (res != ERROR_SUCCESS) {
-                *errorString = UpdateOperation::tr("Cannot write to registry path %1.").arg(regPath);
-                *error = true;
-            }
-        }
-    }
-#endif
-    return setAsExpandSZ;
-}
-
 template <typename SettingsType>
 UpdateOperation::Error writeSetting(const QString &regPath,
                                     const QString &name,
@@ -117,23 +74,19 @@ UpdateOperation::Error writeSetting(const QString &regPath,
     oldValue->clear();
     SettingsType registry(regPath, QSettingsWrapper::NativeFormat);
     if (!registry.isWritable()) {
-        *errorString = UpdateOperation::tr("Registry path %1 is not writable.").arg(regPath);
+        *errorString = UpdateOperation::tr("Registry path %1 is not writable").arg(regPath);
         return UpdateOperation::UserDefinedError;
     }
 
     // remember old value for undo
     *oldValue = registry.value(name).toString();
 
-    bool error = false;
-    if (handleRegExpandSz(regPath, name, value, errorString, &error))
-        return error ? UpdateOperation::UserDefinedError : UpdateOperation::NoError;
-
     // set the new value
     registry.setValue(name, value);
     registry.sync();
 
     if (registry.status() != QSettingsWrapper::NoError) {
-        *errorString = UpdateOperation::tr("Cannot write to registry path %1.").arg(regPath);
+        *errorString = UpdateOperation::tr("Could not write to registry path %1").arg(regPath);
         return UpdateOperation::UserDefinedError;
     }
 
@@ -154,11 +107,6 @@ UpdateOperation::Error undoSetting(const QString &regPath,
     }
     if (actual != value) //key changed, don't undo
         return UpdateOperation::UserDefinedError;
-
-    bool error = false;
-    if (handleRegExpandSz(regPath, name, oldValue, errorString, &error))
-        return error ? UpdateOperation::UserDefinedError : UpdateOperation::NoError;
-
     QString dontcare;
     return writeSetting<SettingsType>(regPath, name, oldValue, errorString, &dontcare);
 }
@@ -167,16 +115,21 @@ UpdateOperation::Error undoSetting(const QString &regPath,
 
 bool EnvironmentVariableOperation::performOperation()
 {
-    if (!checkArgumentCount(2, 4))
+    QStringList args = arguments();
+    if (args.count() < 2 || args.count() > 4) {
+        setError(InvalidArguments);
+        setErrorString(tr("Invalid arguments in %0: %1 arguments given, %2 expected%3.")
+            .arg(name()).arg(arguments().count()).arg(tr("2 to 4"), QLatin1String("")));
         return false;
+    }
 
-    const QStringList args = arguments();
-    const QString name = args.at(0);
-    const QString value = args.at(1);
+    const QString name = arguments().at(0);
+    const QString value = arguments().at(1);
+    bool isPersistent = false;
 
 #ifdef Q_OS_WIN
-    const bool isPersistent = arguments().count() > 2 ? arguments().at(2) == QLatin1String("true") : true;
-    const bool isSystemWide = arguments().count() > 3 ? arguments().at(3) == QLatin1String("true") : false;
+    isPersistent = arguments().count() >= 3 ? arguments().at(2) == QLatin1String("true") : true;
+    const bool isSystemWide = arguments().count() >= 4 ? arguments().at(3) == QLatin1String("true") : false;
     QString oldvalue;
     if (isPersistent) {
         const QString regPath = isSystemWide ? QLatin1String("HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet"
@@ -199,8 +152,9 @@ bool EnvironmentVariableOperation::performOperation()
         setValue(QLatin1String("oldvalue"), oldvalue);
         return true;
     }
-    Q_ASSERT(!isPersistent);
 #endif
+    Q_ASSERT(!isPersistent);
+    Q_UNUSED(isPersistent)
 
     setValue(QLatin1String("oldvalue"), Environment::instance().value(name));
     Environment::instance().setTemporaryValue(name, value);
@@ -254,4 +208,9 @@ bool EnvironmentVariableOperation::undoOperation()
 bool EnvironmentVariableOperation::testOperation()
 {
     return true;
+}
+
+Operation *EnvironmentVariableOperation::clone() const
+{
+    return new EnvironmentVariableOperation();
 }

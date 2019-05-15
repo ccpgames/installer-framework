@@ -15,20 +15,20 @@ class tst_FakeStopProcessForUpdateOperation : public QObject
 private slots:
     void testMissingArgument()
     {
-        FakeStopProcessForUpdateOperation op(&m_core);
+        FakeStopProcessForUpdateOperation op;
+        op.setValue(QLatin1String("installer"), QVariant::fromValue(&m_core));
 
         QVERIFY(op.testOperation());
         QVERIFY(op.performOperation());
         QVERIFY(!op.undoOperation());
 
         QCOMPARE(UpdateOperation::Error(op.error()), UpdateOperation::InvalidArguments);
-        QCOMPARE(op.errorString(), QString("Invalid arguments in FakeStopProcessForUpdate: "
-                                           "0 arguments given, exactly 1 arguments expected."));
+        QCOMPARE(op.errorString(), QString("Number of arguments does not match: one is required"));
     }
 
     void testMissingPackageManagerCore()
     {
-        FakeStopProcessForUpdateOperation op(nullptr);
+        FakeStopProcessForUpdateOperation op;
         op.setArguments(QStringList() << QFileInfo(QCoreApplication::applicationFilePath()).fileName());
 
         QVERIFY(op.testOperation());
@@ -36,15 +36,16 @@ private slots:
         QVERIFY(!op.undoOperation());
 
         QCOMPARE(UpdateOperation::Error(op.error()), UpdateOperation::UserDefinedError);
-        QCOMPARE(op.errorString(), QString("Cannot get package manager core."));
+        QCOMPARE(op.errorString(), QString("Could not get package manager core."));
     }
 
     void testRunningApplication()
     {
         const QString app = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
 
-        FakeStopProcessForUpdateOperation op(&m_core);
+        FakeStopProcessForUpdateOperation op;
         op.setArguments(QStringList() << app);
+        op.setValue(QLatin1String("installer"), QVariant::fromValue(&m_core));
 
         QVERIFY(op.testOperation());
         QVERIFY(op.performOperation());
@@ -57,8 +58,9 @@ private slots:
 
     void testRunningNonApplication()
     {
-        FakeStopProcessForUpdateOperation op(&m_core);
+        FakeStopProcessForUpdateOperation op;
         op.setArguments(QStringList() << "dummy.exe");
+        op.setValue(QLatin1String("installer"), QVariant::fromValue(&m_core));
 
         QVERIFY(op.testOperation());
         QVERIFY(op.performOperation());

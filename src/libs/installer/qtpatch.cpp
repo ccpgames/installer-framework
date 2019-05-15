@@ -85,8 +85,8 @@ QHash<QString, QByteArray> QtPatch::qmakeValues(const QString &qmakePath, QByteA
             if (process.exitStatus() == QProcess::CrashExit) {
                 qWarning() << qmake.absoluteFilePath() << args
                            << "crashed with exit code" << process.exitCode()
-                           << "standard output:" << output
-                           << "error output:" << process.readAllStandardError();
+                           << "standard output: " << output
+                           << "error output: " << process.readAllStandardError();
                 return qmakeValueHash;
             }
             qmakeValueHash = readQmakeOutput(output);
@@ -120,7 +120,7 @@ bool QtPatch::patchBinaryFile(const QString &fileName,
     openFileForPatching(&file);
     if (!file.isOpen()) {
         qDebug() << "qpatch: warning: file" << qPrintable(fileName) << "cannot open.";
-        qDebug().noquote() << file.errorString();
+        qDebug() << qPrintable(file.errorString());
         return false;
     }
 
@@ -168,7 +168,8 @@ bool QtPatch::patchTextFile(const QString &fileName,
     QFile file(fileName);
 
     if (!file.open(QFile::ReadOnly)) {
-        qDebug() << "Cannot open file" << fileName << "for patching:" << file.errorString();
+        qDebug() << QString::fromLatin1("qpatch: warning: Open the file '%1' stopped: %2").arg(
+            fileName, file.errorString());
         return false;
     }
 
@@ -182,7 +183,7 @@ bool QtPatch::patchTextFile(const QString &fileName,
     }
 
     if (!file.open(QFile::WriteOnly | QFile::Truncate)) {
-        qDebug() << "File" << fileName << "not writable.";
+        qDebug() << QString::fromLatin1("qpatch: error: file '%1' not writable").arg(fileName);
         return false;
     }
 
@@ -202,6 +203,7 @@ bool QtPatch::openFileForPatching(QFile *file)
         }
         return file->openMode() == QFile::ReadWrite;
     }
-    qDebug() << "File" << file->fileName() << "is open, so it cannot be opened again.";
+    qDebug() << QString::fromLatin1("qpatch: error: File '%1 is open, so it cannot be opened again.").arg(
+        file->fileName());
     return false;
 }

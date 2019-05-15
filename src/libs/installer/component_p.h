@@ -63,7 +63,6 @@ public:
     bool m_autoCreateOperations;
     bool m_operationsCreatedSuccessfully;
     bool m_updateIsAvailable;
-    bool m_unstable;
 
     QString m_componentName;
     QUrl m_repositoryUrl;
@@ -92,16 +91,14 @@ public:
         LocalDisplayVersion,
         RemoteDisplayVersion,
         ReleaseDate,
-        UncompressedSize,
-        ExpandedByDefault
+        UncompressedSize
     };
 
     enum InstallAction {
         Install,
         Uninstall,
         KeepInstalled,
-        KeepUninstalled,
-        AutodependUninstallation
+        KeepUninstalled
     };
 
     enum Column {
@@ -131,9 +128,6 @@ public:
 
     bool isSelectable() const;
     void setSelectable(bool selectable);
-
-    bool isExpandedByDefault() const;
-    void setExpandedByDefault(bool expandedByDefault);
 
     InstallAction installAction() const;
     void setInstallAction(InstallAction action);

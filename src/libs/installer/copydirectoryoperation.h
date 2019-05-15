@@ -40,12 +40,13 @@ class INSTALLER_EXPORT CopyDirectoryOperation : public QObject, public Operation
     Q_OBJECT
 
 public:
-    explicit CopyDirectoryOperation(PackageManagerCore *core);
+    CopyDirectoryOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation *clone() const;
 
 Q_SIGNALS:
     void outputTextChanged(const QString &progress);

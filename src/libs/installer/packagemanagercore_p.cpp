@@ -49,13 +49,13 @@
 #include "componentchecker.h"
 #include "globals.h"
 
-#include "selfrestarter.h"
-#include "filedownloaderfactory.h"
-#include "updateoperationfactory.h"
+#include "kdselfrestarter.h"
+#include "kdupdaterfiledownloaderfactory.h"
+#include "kdupdaterupdatesourcesinfo.h"
+#include "kdupdaterupdateoperationfactory.h"
 
 #include <productkeycheck.h>
 
-#include <QSettings>
 #include <QtConcurrentRun>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
@@ -82,7 +82,7 @@ namespace QInstaller {
 class OperationTracer
 {
 public:
-    OperationTracer(Operation *operation) : m_operation(nullptr)
+    OperationTracer(Operation *operation) : m_operation(0)
     {
         // don't create output for that hacky pseudo operation
         if (operation->name() != QLatin1String("MinimumProgress"))
@@ -92,9 +92,9 @@ public:
     {
         if (!m_operation)
             return;
-        qDebug().noquote() << QString::fromLatin1("%1 %2 operation: %3").arg(state, m_operation->value(
+        qDebug() << QString::fromLatin1("%1 %2 operation: %3").arg(state, m_operation->value(
             QLatin1String("component")).toString(), m_operation->name());
-        qDebug().noquote() << QString::fromLatin1("\t- arguments: %1").arg(m_operation->arguments()
+        qDebug() << QString::fromLatin1("\t- arguments: %1").arg(m_operation->arguments()
             .join(QLatin1String(", ")));
     }
     ~OperationTracer() {
@@ -141,56 +141,37 @@ static void deferredRename(const QString &oldName, const QString &newName, bool 
 {
 #ifdef Q_OS_WIN
     QStringList arguments;
+    {
+        QTemporaryFile f(QDir::temp().absoluteFilePath(QLatin1String("deferredrenameXXXXXX.vbs")));
+        QInstaller::openForWrite(&f);
+        f.setAutoRemove(false);
 
-    // Check if .vbs extension can be used for running renaming script. If not, create own extension
-    QString extension = QLatin1String(".vbs");
-    QSettingsWrapper settingRoot(QLatin1String("HKEY_CLASSES_ROOT\\.vbs"), QSettingsWrapper::NativeFormat);
-    if (settingRoot.value(QLatin1String(".")).toString() != QLatin1String("VBSFile")) {
-        extension = QLatin1String(".qtInstaller");
-        QSettingsWrapper settingsUser(QLatin1String("HKEY_CURRENT_USER\\Software\\Classes"), QSettingsWrapper::NativeFormat);
-        QString value = settingsUser.value(extension).toString();
-        if (value != QLatin1String("VBSFile"))
-            settingsUser.setValue(extension, QLatin1String("VBSFile"));
+        arguments << QDir::toNativeSeparators(f.fileName()) << QDir::toNativeSeparators(oldName)
+            << QDir::toNativeSeparators(QFileInfo(oldName).dir().absoluteFilePath(QFileInfo(newName)
+            .fileName()));
+
+        QTextStream batch(&f);
+        batch << "Set fso = WScript.CreateObject(\"Scripting.FileSystemObject\")\n";
+        batch << "Set tmp = WScript.CreateObject(\"WScript.Shell\")\n";
+        batch << QString::fromLatin1("file = \"%1\"\n").arg(arguments[2]);
+        batch << "on error resume next\n";
+
+        batch << "while fso.FileExists(file)\n";
+        batch << "    fso.DeleteFile(file)\n";
+        batch << "    WScript.Sleep(1000)\n";
+        batch << "wend\n";
+        batch << QString::fromLatin1("fso.MoveFile \"%1\", file\n").arg(arguments[1]);
+        if (restart)
+            batch <<  QString::fromLatin1("tmp.exec \"%1 --updater\"\n").arg(arguments[2]);
+        batch << "fso.DeleteFile(WScript.ScriptFullName)\n";
     }
-    QTemporaryFile f(QDir::temp().absoluteFilePath(QLatin1String("deferredrenameXXXXXX%1")).arg(extension));
-
-    QInstaller::openForWrite(&f);
-    f.setAutoRemove(false);
-
-    arguments << QDir::toNativeSeparators(f.fileName()) << QDir::toNativeSeparators(oldName)
-        << QDir::toNativeSeparators(QFileInfo(oldName).dir().absoluteFilePath(QFileInfo(newName)
-        .fileName()));
-
-    QTextStream batch(&f);
-    batch.setCodec("UTF-16");
-    batch << "Set fso = WScript.CreateObject(\"Scripting.FileSystemObject\")\n";
-    batch << "Set tmp = WScript.CreateObject(\"WScript.Shell\")\n";
-    batch << QString::fromLatin1("file = \"%1\"\n").arg(arguments[2]);
-    batch << "on error resume next\n";
-
-    batch << "while fso.FileExists(file)\n";
-    batch << "    fso.DeleteFile(file)\n";
-    batch << "    WScript.Sleep(1000)\n";
-    batch << "wend\n";
-    batch << QString::fromLatin1("fso.MoveFile \"%1\", file\n").arg(arguments[1]);
-    if (restart) {
-        //Restart with same command line arguments as first executable
-        QStringList commandLineArguments = QCoreApplication::arguments();
-        batch <<  QString::fromLatin1("tmp.exec \"%1 --updater").arg(arguments[2]);
-        //Skip the first argument as that is executable itself
-        for (int i = 1; i < commandLineArguments.count(); i++) {
-            batch << QString::fromLatin1(" %1").arg(commandLineArguments.at(i));
-        }
-        batch << QString::fromLatin1("\"\n");
-    }
-    batch << "fso.DeleteFile(WScript.ScriptFullName)\n";
 
     QProcessWrapper::startDetached(QLatin1String("cscript"), QStringList() << QLatin1String("//Nologo")
         << arguments[0]);
 #else
         QFile::remove(newName);
         QFile::rename(oldName, newName);
-        SelfRestarter::setRestartOnQuit(restart);
+        KDSelfRestarter::setRestartOnQuit(restart);
 #endif
 }
 
@@ -198,31 +179,29 @@ static void deferredRename(const QString &oldName, const QString &newName, bool 
 // -- PackageManagerCorePrivate
 
 PackageManagerCorePrivate::PackageManagerCorePrivate(PackageManagerCore *core)
-    : m_updateFinder(nullptr)
-    , m_compressedFinder(nullptr)
-    , m_localPackageHub(std::make_shared<LocalPackageHub>())
+    : m_updateFinder(0)
+    , m_updaterApplication(new DummyConfigurationInterface)
     , m_core(core)
     , m_updates(false)
     , m_repoFetched(false)
     , m_updateSourcesAdded(false)
     , m_componentsToInstallCalculated(false)
-    , m_componentScriptEngine(nullptr)
-    , m_controlScriptEngine(nullptr)
-    , m_installerCalculator(nullptr)
-    , m_uninstallerCalculator(nullptr)
-    , m_proxyFactory(nullptr)
-    , m_defaultModel(nullptr)
-    , m_updaterModel(nullptr)
-    , m_guiObject(nullptr)
-    , m_remoteFileEngineHandler(nullptr)
+    , m_componentScriptEngine(0)
+    , m_controlScriptEngine(0)
+    , m_installerCalculator(0)
+    , m_uninstallerCalculator(0)
+    , m_proxyFactory(0)
+    , m_defaultModel(0)
+    , m_updaterModel(0)
+    , m_guiObject(0)
+    , m_remoteFileEngineHandler(0)
 {
 }
 
 PackageManagerCorePrivate::PackageManagerCorePrivate(PackageManagerCore *core, qint64 magicInstallerMaker,
         const QList<OperationBlob> &performedOperations)
-    : m_updateFinder(nullptr)
-    , m_compressedFinder(nullptr)
-    , m_localPackageHub(std::make_shared<LocalPackageHub>())
+    : m_updateFinder(0)
+    , m_updaterApplication(new DummyConfigurationInterface)
     , m_status(PackageManagerCore::Unfinished)
     , m_needsHardRestart(false)
     , m_testChecksum(false)
@@ -236,39 +215,36 @@ PackageManagerCorePrivate::PackageManagerCorePrivate(PackageManagerCore *core, q
     , m_updateSourcesAdded(false)
     , m_magicBinaryMarker(magicInstallerMaker)
     , m_componentsToInstallCalculated(false)
-    , m_componentScriptEngine(nullptr)
-    , m_controlScriptEngine(nullptr)
-    , m_installerCalculator(nullptr)
-    , m_uninstallerCalculator(nullptr)
-    , m_proxyFactory(nullptr)
-    , m_defaultModel(nullptr)
-    , m_updaterModel(nullptr)
-    , m_guiObject(nullptr)
+    , m_componentScriptEngine(0)
+    , m_controlScriptEngine(0)
+    , m_installerCalculator(0)
+    , m_uninstallerCalculator(0)
+    , m_proxyFactory(0)
+    , m_defaultModel(0)
+    , m_updaterModel(0)
+    , m_guiObject(0)
     , m_remoteFileEngineHandler(new RemoteFileEngineHandler)
 {
     foreach (const OperationBlob &operation, performedOperations) {
         QScopedPointer<QInstaller::Operation> op(KDUpdater::UpdateOperationFactory::instance()
-            .create(operation.name, core));
+            .create(operation.name));
         if (op.isNull()) {
-            qWarning() << "Failed to load unknown operation" << operation.name;
+            qWarning() << QString::fromLatin1("Failed to load unknown operation %1")
+                .arg(operation.name);
             continue;
         }
 
         if (!op->fromXml(operation.xml)) {
-            qWarning() << "Failed to load XML for operation" << operation.name;
+            qWarning() << "Failed to load XML for operation:" << operation.name;
             continue;
         }
         m_performedOperationsOld.append(op.take());
     }
 
-    connect(this, &PackageManagerCorePrivate::installationStarted,
-            m_core, &PackageManagerCore::installationStarted);
-    connect(this, &PackageManagerCorePrivate::installationFinished,
-            m_core, &PackageManagerCore::installationFinished);
-    connect(this, &PackageManagerCorePrivate::uninstallationStarted,
-            m_core, &PackageManagerCore::uninstallationStarted);
-    connect(this, &PackageManagerCorePrivate::uninstallationFinished,
-            m_core, &PackageManagerCore::uninstallationFinished);
+    connect(this, SIGNAL(installationStarted()), m_core, SIGNAL(installationStarted()));
+    connect(this, SIGNAL(installationFinished()), m_core, SIGNAL(installationFinished()));
+    connect(this, SIGNAL(uninstallationStarted()), m_core, SIGNAL(uninstallationStarted()));
+    connect(this, SIGNAL(uninstallationFinished()), m_core, SIGNAL(uninstallationFinished()));
 }
 
 PackageManagerCorePrivate::~PackageManagerCorePrivate()
@@ -330,8 +306,7 @@ bool PackageManagerCorePrivate::performOperationThreaded(Operation *operation, O
     const QFuture<bool> future = QtConcurrent::run(runOperation, operation, type);
 
     QEventLoop loop;
-    QObject::connect(&futureWatcher, &decltype(futureWatcher)::finished, &loop, &QEventLoop::quit,
-                     Qt::QueuedConnection);
+    loop.connect(&futureWatcher, SIGNAL(finished()), SLOT(quit()), Qt::QueuedConnection);
     futureWatcher.setFuture(future);
 
     if (!future.isFinished())
@@ -363,10 +338,10 @@ bool PackageManagerCorePrivate::buildComponentTree(QHash<QString, Component*> &c
             return false;
         // append all components to their respective parents
         QHash<QString, Component*>::const_iterator it;
-        for (it = components.constBegin(); it != components.constEnd(); ++it) {
+        for (it = components.begin(); it != components.end(); ++it) {
             QString id = it.key();
             QInstaller::Component *component = it.value();
-            while (!id.isEmpty() && component->parentComponent() == nullptr) {
+            while (!id.isEmpty() && component->parentComponent() == 0) {
                 id = id.section(QLatin1Char('.'), 0, -2);
                 if (components.contains(id))
                     components[id]->appendComponent(component);
@@ -375,7 +350,7 @@ bool PackageManagerCorePrivate::buildComponentTree(QHash<QString, Component*> &c
 
         // append all components w/o parent to the direct list
         foreach (QInstaller::Component *component, components) {
-            if (component->parentComponent() == nullptr)
+            if (component->parentComponent() == 0)
                 m_core->appendRootComponent(component);
         }
 
@@ -388,15 +363,11 @@ bool PackageManagerCorePrivate::buildComponentTree(QHash<QString, Component*> &c
         // now we can preselect components in the tree
         foreach (QInstaller::Component *component, components) {
             // set the checked state for all components without child (means without tristate)
-            // set checked state also for installed virtual tristate componets as otherwise
-            // those will be uninstalled
             if (component->isCheckable() && !component->isTristate()) {
                 if (component->isDefault() && isInstaller())
                     component->setCheckState(Qt::Checked);
                 else if (component->isInstalled())
                     component->setCheckState(Qt::Checked);
-            } else if (component->isVirtual() && component->isInstalled() && component->isTristate()) {
-                component->setCheckState(Qt::Checked);
             }
         }
 
@@ -416,14 +387,11 @@ bool PackageManagerCorePrivate::buildComponentTree(QHash<QString, Component*> &c
 
         restoreCheckState();
 
-        if (m_core->isVerbose()) {
-            foreach (QInstaller::Component *component, components) {
-                const QStringList warnings = ComponentChecker::checkComponent(component);
-                foreach (const QString &warning, warnings)
-                    qCWarning(lcComponentChecker).noquote() << warning;
-            }
+        foreach (QInstaller::Component *component, components) {
+            const QStringList warnings = ComponentChecker::checkComponent(component);
+            foreach (const QString &warning, warnings)
+                qCWarning(lcComponentChecker) << warning;
         }
-
     } catch (const Error &error) {
         clearAllComponentLists();
         emit m_core->finishAllComponentsReset(QList<QInstaller::Component*>());
@@ -440,13 +408,13 @@ bool PackageManagerCorePrivate::buildComponentTree(QHash<QString, Component*> &c
 void PackageManagerCorePrivate::cleanUpComponentEnvironment()
 {
     // clean up registered (downloaded) data
-    if (m_core->isMaintainer())
+    if (m_core->isUpdater() || m_core->isPackageManager())
         BinaryFormatEngineHandler::instance()->clear();
 
     // there could be still some references to already deleted components,
     // so we need to remove the current component script engine
     delete m_componentScriptEngine;
-    m_componentScriptEngine = nullptr;
+    m_componentScriptEngine = 0;
 }
 
 ScriptEngine *PackageManagerCorePrivate::componentScriptEngine() const
@@ -520,7 +488,7 @@ QHash<QString, QPair<Component*, Component*> > &PackageManagerCorePrivate::compo
 void PackageManagerCorePrivate::clearInstallerCalculator()
 {
     delete m_installerCalculator;
-    m_installerCalculator = nullptr;
+    m_installerCalculator = 0;
 }
 
 InstallerCalculator *PackageManagerCorePrivate::installerCalculator() const
@@ -536,7 +504,7 @@ InstallerCalculator *PackageManagerCorePrivate::installerCalculator() const
 void PackageManagerCorePrivate::clearUninstallerCalculator()
 {
     delete m_uninstallerCalculator;
-    m_uninstallerCalculator = nullptr;
+    m_uninstallerCalculator = 0;
 }
 
 UninstallerCalculator *PackageManagerCorePrivate::uninstallerCalculator() const
@@ -546,7 +514,7 @@ UninstallerCalculator *PackageManagerCorePrivate::uninstallerCalculator() const
 
         QList<Component*> installedComponents;
         foreach (const QString &name, pmcp->localInstalledPackages().keys()) {
-            if (Component *component = m_core->componentByName(PackageManagerCore::checkableName(name))) {
+            if (Component *component = m_core->componentByName(name)) {
                 if (!component->uninstallationRequested())
                     installedComponents.append(component);
             }
@@ -575,38 +543,45 @@ void PackageManagerCorePrivate::initialize(const QHash<QString, QString> &params
         readMaintenanceConfigFiles(QCoreApplication::applicationDirPath());
 #endif
     }
-    processFilesForDelayedDeletion();
-    m_data.setDynamicPredefinedVariables();
 
-    disconnect(this, &PackageManagerCorePrivate::installationStarted,
-               ProgressCoordinator::instance(), &ProgressCoordinator::reset);
-    connect(this, &PackageManagerCorePrivate::installationStarted,
-            ProgressCoordinator::instance(), &ProgressCoordinator::reset);
-    disconnect(this, &PackageManagerCorePrivate::uninstallationStarted,
-               ProgressCoordinator::instance(), &ProgressCoordinator::reset);
-    connect(this, &PackageManagerCorePrivate::uninstallationStarted,
-            ProgressCoordinator::instance(), &ProgressCoordinator::reset);
+    foreach (Operation *currentOperation, m_performedOperationsOld)
+        currentOperation->setValue(QLatin1String("installer"), QVariant::fromValue(m_core));
 
-    if (!isInstaller())
-        m_localPackageHub->setFileName(componentsXmlPath());
+    disconnect(this, SIGNAL(installationStarted()), ProgressCoordinator::instance(), SLOT(reset()));
+    connect(this, SIGNAL(installationStarted()), ProgressCoordinator::instance(), SLOT(reset()));
+    disconnect(this, SIGNAL(uninstallationStarted()), ProgressCoordinator::instance(), SLOT(reset()));
+    connect(this, SIGNAL(uninstallationStarted()), ProgressCoordinator::instance(), SLOT(reset()));
 
-    if (isInstaller() || m_localPackageHub->applicationName().isEmpty()) {
+    m_updaterApplication.updateSourcesInfo()->setFileName(QString());
+    KDUpdater::PackagesInfo &packagesInfo = *m_updaterApplication.packagesInfo();
+    packagesInfo.setFileName(componentsXmlPath());
+
+    // Note: force overwriting the application name and version in case we run as installer. Both will be
+    //       set to wrong initial values if we install into an already existing installation. This can happen
+    //       if the components.xml path has not been changed, but name or version of the new installer.
+    if (isInstaller() || packagesInfo.applicationName().isEmpty()) {
         // TODO: this seems to be wrong, we should ask for ProductName defaulting to applicationName...
-        m_localPackageHub->setApplicationName(m_data.settings().applicationName());
+        packagesInfo.setApplicationName(m_data.settings().applicationName());
     }
 
-    if (isInstaller() || m_localPackageHub->applicationVersion().isEmpty())
-        m_localPackageHub->setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
+    if (isInstaller() || packagesInfo.applicationVersion().isEmpty()) {
+        packagesInfo.setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
+    }
 
-    if (isInstaller())
-        m_packageSources.insert(PackageSource(QUrl(QLatin1String("resource://metadata/")), 0));
+    if (isInstaller()) {
+        // TODO: this seems to be wrong, we should ask for ProductName defaulting to applicationName...
+        m_updaterApplication.addUpdateSource(m_data.settings().applicationName(),
+            m_data.settings().applicationName(), QString(), QUrl(QLatin1String("resource://metadata/")), 0);
+        m_updaterApplication.updateSourcesInfo()->setModified(false);
+    }
 
     m_metadataJob.disconnect();
     m_metadataJob.setAutoDelete(false);
     m_metadataJob.setPackageManagerCore(m_core);
-    connect(&m_metadataJob, &Job::infoMessage, this, &PackageManagerCorePrivate::infoMessage);
-    connect(&m_metadataJob, &Job::progress, this, &PackageManagerCorePrivate::infoProgress);
-    connect(&m_metadataJob, &Job::totalProgress, this, &PackageManagerCorePrivate::totalProgress);
+    connect(&m_metadataJob, SIGNAL(infoMessage(KDJob*, QString)), this,
+        SLOT(infoMessage(KDJob*, QString)));
+    connect(&m_metadataJob, SIGNAL(progress(KDJob *, quint64, quint64)), this,
+        SLOT(infoProgress(KDJob *, quint64, quint64)));
     KDUpdater::FileDownloaderFactory::instance().setProxyFactory(m_core->proxyFactory());
 }
 
@@ -676,7 +651,7 @@ QByteArray PackageManagerCorePrivate::replaceVariables(const QByteArray &ba) con
  */
 Operation *PackageManagerCorePrivate::createOwnedOperation(const QString &type)
 {
-    m_ownedOperations.append(KDUpdater::UpdateOperationFactory::instance().create(type, m_core));
+    m_ownedOperations.append(KDUpdater::UpdateOperationFactory::instance().create(type));
     return m_ownedOperations.last();
 }
 
@@ -688,7 +663,7 @@ Operation *PackageManagerCorePrivate::createOwnedOperation(const QString &type)
 Operation *PackageManagerCorePrivate::takeOwnedOperation(Operation *operation)
 {
     if (!m_ownedOperations.contains(operation))
-        return nullptr;
+        return 0;
 
     m_ownedOperations.removeAll(operation);
     return operation;
@@ -757,32 +732,24 @@ void PackageManagerCorePrivate::writeMaintenanceConfigFiles()
     // write current state (variables) to the maintenance tool ini file
     const QString iniPath = targetDir() + QLatin1Char('/') + m_data.settings().maintenanceToolIniFile();
 
-    QVariantHash variables; // Do not change to QVariantMap! Breaks existing .ini files,
-    // cause the variant types do not match while restoring the variables from the file.
+    QVariantHash variables;
     QSettingsWrapper cfg(iniPath, QSettingsWrapper::IniFormat);
     foreach (const QString &key, m_data.keys()) {
-        if (key == scRunProgramDescription || key == scRunProgram || key == scRunProgramArguments)
-            continue;
-        QVariant value = m_data.value(key);
-        if (value.canConvert(QVariant::String))
-            value = replacePath(value.toString(), targetDir(), QLatin1String(scRelocatable));
-        variables.insert(key, value);
+        if (key != scRunProgramDescription && key != scRunProgram && key != scRunProgramArguments)
+            variables.insert(key, m_data.value(key));
     }
     cfg.setValue(QLatin1String("Variables"), variables);
 
-    QVariantList repos; // Do not change either!
-    if (m_data.settings().saveDefaultRepositories()) {
-        foreach (const Repository &repo, m_data.settings().defaultRepositories())
-            repos.append(QVariant().fromValue(repo));
-    }
+    QVariantList repos;
+    foreach (const Repository &repo, m_data.settings().defaultRepositories())
+        repos.append(QVariant().fromValue(repo));
     cfg.setValue(QLatin1String("DefaultRepositories"), repos);
-    cfg.setValue(QLatin1String("FilesForDelayedDeletion"), m_filesForDelayedDeletion);
-
     cfg.sync();
+
     if (cfg.status() != QSettingsWrapper::NoError) {
         const QString reason = cfg.status() == QSettingsWrapper::AccessError ? tr("Access error")
             : tr("Format error");
-        throw Error(tr("Cannot write installer configuration to %1: %2").arg(iniPath, reason));
+        throw Error(tr("Could not write installer configuration to %1: %2").arg(iniPath, reason));
     }
 
     QFile file(targetDir() + QLatin1Char('/') + QLatin1String("network.xml"));
@@ -827,21 +794,16 @@ void PackageManagerCorePrivate::readMaintenanceConfigFiles(const QString &target
 {
     QSettingsWrapper cfg(targetDir + QLatin1Char('/') + m_data.settings().maintenanceToolIniFile(),
         QSettingsWrapper::IniFormat);
-    const QVariantHash v = cfg.value(QLatin1String("Variables")).toHash(); // Do not change to
-    // QVariantMap! Breaks reading from existing .ini files, cause the variant types do not match.
-    for (QVariantHash::const_iterator it = v.constBegin(); it != v.constEnd(); ++it) {
-        m_data.setValue(it.key(), replacePath(it.value().toString(), QLatin1String(scRelocatable),
-            targetDir));
-    }
+    const QVariantHash vars = cfg.value(QLatin1String("Variables")).toHash();
+    for (QHash<QString, QVariant>::ConstIterator it = vars.constBegin(); it != vars.constEnd(); ++it)
+        m_data.setValue(it.key(), it.value().toString());
+
     QSet<Repository> repos;
-    const QVariantList variants = cfg.value(QLatin1String("DefaultRepositories"))
-        .toList(); // Do not change either!
+    const QVariantList variants = cfg.value(QLatin1String("DefaultRepositories")).toList();
     foreach (const QVariant &variant, variants)
         repos.insert(variant.value<Repository>());
     if (!repos.isEmpty())
         m_data.settings().setDefaultRepositories(repos);
-
-    m_filesForDelayedDeletion = cfg.value(QLatin1String("FilesForDelayedDeletion")).toStringList();
 
     QFile file(targetDir + QLatin1String("/network.xml"));
     if (!file.open(QIODevice::ReadOnly))
@@ -942,7 +904,7 @@ void PackageManagerCorePrivate::connectOperationToInstaller(Operation *const ope
 {
     Q_ASSERT(operationPartSize);
     QObject *const operationObject = dynamic_cast< QObject*> (operation);
-    if (operationObject != nullptr) {
+    if (operationObject != 0) {
         const QMetaObject *const mo = operationObject->metaObject();
         if (mo->indexOfSignal(QMetaObject::normalizedSignature("outputTextChanged(QString)")) > -1) {
             connect(operationObject, SIGNAL(outputTextChanged(QString)), ProgressCoordinator::instance(),
@@ -1021,14 +983,12 @@ void PackageManagerCorePrivate::writeMaintenanceToolBinary(QFile *const input, q
 
     QInstaller::appendData(&out, input, size);
     if (writeBinaryLayout) {
-
-        QDir resourcePath(QFileInfo(maintenanceToolRenamedName).dir());
 #ifdef Q_OS_OSX
+        QDir resourcePath(QFileInfo(maintenanceToolRenamedName).dir());
         if (!resourcePath.path().endsWith(QLatin1String("Contents/MacOS")))
             throw Error(tr("Maintenance tool is not a bundle"));
         resourcePath.cdUp();
         resourcePath.cd(QLatin1String("Resources"));
-#endif
         // It's a bit odd to have only the magic in the data file, but this simplifies
         // other code a lot (since installers don't have any appended data either)
         QTemporaryFile dataOut;
@@ -1043,30 +1003,38 @@ void PackageManagerCorePrivate::writeMaintenanceToolBinary(QFile *const input, q
         {
             QFile dummy(resourcePath.filePath(QLatin1String("installer.dat")));
             if (dummy.exists() && !dummy.remove()) {
-                throw Error(tr("Cannot remove data file \"%1\": %2").arg(dummy.fileName(),
+                throw Error(tr("Could not remove data file '%1': %2").arg(dummy.fileName(),
                     dummy.errorString()));
             }
         }
 
         if (!dataOut.rename(resourcePath.filePath(QLatin1String("installer.dat")))) {
-            throw Error(tr("Cannot write maintenance tool data to %1: %2").arg(out.fileName(),
+            throw Error(tr("Could not write maintenance tool data to %1: %2").arg(out.fileName(),
                 out.errorString()));
         }
         dataOut.setAutoRemove(false);
         dataOut.setPermissions(dataOut.permissions() | QFile::WriteUser | QFile::ReadGroup
             | QFile::ReadOther);
+#else
+        QInstaller::appendInt64(&out, 0);   // operations start
+        QInstaller::appendInt64(&out, 0);   // operations end
+        QInstaller::appendInt64(&out, 0);   // resource count
+        QInstaller::appendInt64(&out, 4 * sizeof(qint64));   // data block size
+        QInstaller::appendInt64(&out, BinaryContent::MagicUninstallerMarker);
+        QInstaller::appendInt64(&out, BinaryContent::MagicCookie);
+#endif
     }
 
     {
         QFile dummy(maintenanceToolRenamedName);
         if (dummy.exists() && !dummy.remove()) {
-            throw Error(tr("Cannot remove data file \"%1\": %2").arg(dummy.fileName(),
+            throw Error(tr("Could not remove data file '%1': %2").arg(dummy.fileName(),
                 dummy.errorString()));
         }
     }
 
     if (!out.copy(maintenanceToolRenamedName)) {
-        throw Error(tr("Cannot write maintenance tool to \"%1\": %2").arg(maintenanceToolRenamedName,
+        throw Error(tr("Could not write maintenance tool to %1: %2").arg(maintenanceToolRenamedName,
             out.errorString()));
     }
 
@@ -1098,7 +1066,8 @@ void PackageManagerCorePrivate::writeMaintenanceToolBinaryData(QFileDevice *outp
             file.remove();  // clear all possible leftovers
             m_core->setValue(QString::fromLatin1("DefaultResourceReplacement"), QString());
         } else {
-            qWarning() << "Cannot replace default resource with" << QDir::toNativeSeparators(newDefaultResource);
+            qWarning() << QString::fromLatin1("Could not replace default resource with '%1'.")
+                .arg(newDefaultResource);
         }
     }
 
@@ -1111,6 +1080,9 @@ void PackageManagerCorePrivate::writeMaintenanceToolBinaryData(QFileDevice *outp
     const qint64 operationsStart = output->pos();
     QInstaller::appendInt64(output, performedOperations.count());
     foreach (Operation *operation, performedOperations) {
+        // the installer can't be put into XML, remove it first
+        operation->clearValue(QLatin1String("installer"));
+
         QInstaller::appendString(output, operation->name());
         QInstaller::appendString(output, operation->toXml().toString());
 
@@ -1210,8 +1182,8 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
         performOperationThreaded(op, Backup);
         performOperationThreaded(op);
 
-        // copy application icons if it exists.
-        const QString icon = QFileInfo(QCoreApplication::applicationFilePath()).fileName()
+        // copy application icons if it exists
+        const QString icon = QFileInfo(QCoreApplication::applicationFilePath()).baseName()
             + QLatin1String(".icns");
         op = createOwnedOperation(QLatin1String("Copy"));
         op->setArguments(QStringList() << (sourceAppDirPath + QLatin1String("/../Resources/") + icon)
@@ -1286,17 +1258,17 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
             if (!replacementBinary.remove()) {
                 // Is there anything more sensible we can do with this error? I think not. It's not serious
                 // enough for throwing / aborting the process.
-                qDebug() << "Cannot remove installer base binary" << installerBaseBinary
-                         << "after updating the maintenance tool:" << replacementBinary.errorString();
+                qDebug() << QString::fromLatin1("Could not remove installer base binary '%1' after updating "
+                    "the maintenance tool: %2").arg(installerBaseBinary, replacementBinary.errorString());
             } else {
-                qDebug() << "Removed installer base binary" << installerBaseBinary
-                         << "after updating the maintenance tool.";
+                qDebug() << QString::fromLatin1("Removed installer base binary '%1' after updating the "
+                    "maintenance tool.").arg(installerBaseBinary);
             }
             m_installerBaseBinaryUnreplaced.clear();
         } else if (!installerBaseBinary.isEmpty() && !QFileInfo(installerBaseBinary).exists()) {
-            qWarning() << "The current maintenance tool could not be updated." << installerBaseBinary
-                       << "does not exist. Please fix the \"setInstallerBaseBinary(<temp_installer_base_"
-                          "binary_path>)\" call in your script.";
+            qWarning() << QString::fromLatin1("The current maintenance tool could not be "
+                "updated. '%1' does not exist. Please fix the 'setInstallerBaseBinary(<temp_installer_base_"
+                "binary_path>)' call in your script.").arg(installerBaseBinary);
         }
 
         QFile input;
@@ -1306,9 +1278,9 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
         try {
             if (isInstaller()) {
                 if (QFile::exists(dataFile)) {
-                    qWarning() << "Found binary data file" << dataFile << "but "
+                    qWarning() << QString::fromLatin1("Found binary data file '%1' but "
                         "deliberately not used. Running as installer requires to read the "
-                        "resources from the application binary.";
+                        "resources from the application binary.").arg(dataFile);
                 }
                 throw Error();
             }
@@ -1316,19 +1288,14 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
             QInstaller::openForRead(&input);
             layout = BinaryContent::binaryLayout(&input, BinaryContent::MagicCookieDat);
         } catch (const Error &/*error*/) {
-            // We are only here when using installer
-            QString binaryName = installerBinaryPath();
-            // On Mac data is always in a separate file so that the binary can be signed.
-            // On other platforms data is in separate file only after install so that the
-            // maintenancetool sign does not break.
 #ifdef Q_OS_OSX
+            // On Mac, data is always in a separate file so that the binary can be signed
+            QString binaryName = isInstaller() ? installerBinaryPath() : maintenanceToolName();
             QDir dataPath(QFileInfo(binaryName).dir());
             dataPath.cdUp();
             dataPath.cd(QLatin1String("Resources"));
             input.setFileName(dataPath.filePath(QLatin1String("installer.dat")));
-#else
-            input.setFileName(binaryName);
-#endif
+
             QInstaller::openForRead(&input);
             layout = BinaryContent::binaryLayout(&input, BinaryContent::MagicCookie);
 
@@ -1338,6 +1305,16 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
                 QInstaller::openForRead(&tmp);
                 writeMaintenanceToolBinary(&tmp, tmp.size(), true);
             }
+#else
+            input.setFileName(isInstaller() ? installerBinaryPath() : maintenanceToolName());
+            QInstaller::openForRead(&input);
+            layout = BinaryContent::binaryLayout(&input, BinaryContent::MagicCookie);
+            if (!newBinaryWritten) {
+                newBinaryWritten = true;
+                writeMaintenanceToolBinary(&input, layout.endOfBinaryContent
+                    - layout.binaryContentSize, true);
+            }
+#endif
         }
 
         performedOperations = sortOperationsBasedOnComponentDependencies(performedOperations);
@@ -1346,17 +1323,18 @@ void PackageManagerCorePrivate::writeMaintenanceTool(OperationList performedOper
         try {
             QTemporaryFile file;
             QInstaller::openForWrite(&file);
+
             writeMaintenanceToolBinaryData(&file, &input, performedOperations, layout);
             QInstaller::appendInt64(&file, BinaryContent::MagicCookieDat);
 
             QFile dummy(dataFile + QLatin1String(".new"));
             if (dummy.exists() && !dummy.remove()) {
-                throw Error(tr("Cannot remove data file \"%1\": %2").arg(dummy.fileName(),
+                throw Error(tr("Could not remove data file '%1': %2").arg(dummy.fileName(),
                     dummy.errorString()));
             }
 
             if (!file.rename(dataFile + QLatin1String(".new"))) {
-                throw Error(tr("Cannot write maintenance tool binary data to %1: %2")
+                throw Error(tr("Could not write maintenance tool binary data to %1: %2")
                     .arg(file.fileName(), file.errorString()));
             }
             file.setAutoRemove(false);
@@ -1416,7 +1394,7 @@ QString PackageManagerCorePrivate::registerPath()
     }
 
     QString path = QLatin1String("HKEY_CURRENT_USER");
-    if (m_data.value(scAllUsers, scFalse).toString() == scTrue)
+    if (m_data.value(QLatin1String("AllUsers"), scFalse).toString() == scTrue)
         path = QLatin1String("HKEY_LOCAL_MACHINE");
 
     return path + QLatin1String("\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\")
@@ -1508,13 +1486,14 @@ bool PackageManagerCorePrivate::runInstaller()
             componentsInstallPartProgressSize = double(1);
 
         // Force an update on the components xml as the install dir might have changed.
-        m_localPackageHub->setFileName(componentsXmlPath());
+        KDUpdater::PackagesInfo &info = *m_updaterApplication.packagesInfo();
+        info.setFileName(componentsXmlPath());
         // Clear the packages as we might install into an already existing installation folder.
-        m_localPackageHub->clearPackageInfos();
+        info.clearPackageInfoList();
         // also update the application name, might be set from a script as well
-        m_localPackageHub->setApplicationName(m_data.value(QLatin1String("ProductName"),
+        info.setApplicationName(m_data.value(QLatin1String("ProductName"),
             m_data.settings().applicationName()).toString());
-        m_localPackageHub->setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
+        info.setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
 
         const int progressOperationCount = countProgressOperations(componentsToInstall)
             // add one more operation as we support progress
@@ -1542,6 +1521,7 @@ bool PackageManagerCorePrivate::runInstaller()
                 binaryFile = resourcePath.filePath(QLatin1String("installer.dat"));
 #endif
                 createRepo->setValue(QLatin1String("uninstall-only"), true);
+                createRepo->setValue(QLatin1String("installer"), QVariant::fromValue(m_core));
                 createRepo->setArguments(QStringList() << binaryFile << target
                     + QLatin1String("/repository"));
 
@@ -1656,9 +1636,9 @@ bool PackageManagerCorePrivate::runPackageUpdater()
         // build a list of undo operations based on the checked state of the component
         foreach (Operation *operation, performedOperationsOld) {
             const QString &name = operation->value(QLatin1String("component")).toString();
-            Component *component = componentsByName.value(name, nullptr);
+            Component *component = componentsByName.value(name, 0);
             if (!component)
-                component = m_core->componentByName(PackageManagerCore::checkableName(name));
+                component = m_core->componentByName(name);
             if (component)
                 componentsByName.insert(name, component);
 
@@ -1857,11 +1837,9 @@ void PackageManagerCorePrivate::installComponent(Component *component, double pr
 
     const int opCount = operations.count();
     // show only components which do something, MinimumProgress is only for progress calculation safeness
-    bool showDetailsLog = false;
     if (opCount > 1 || (opCount == 1 && operations.at(0)->name() != QLatin1String("MinimumProgress"))) {
-        ProgressCoordinator::instance()->emitLabelAndDetailTextChanged(tr("\nInstalling component %1...")
-            .arg(component->displayName()));
-        showDetailsLog = true;
+            ProgressCoordinator::instance()->emitLabelAndDetailTextChanged(tr("\nInstalling component %1")
+                .arg(component->displayName()));
     }
 
     foreach (Operation *operation, operations) {
@@ -1884,7 +1862,7 @@ void PackageManagerCorePrivate::installComponent(Component *component, double pr
         bool ignoreError = false;
         bool ok = performOperationThreaded(operation);
         while (!ok && !ignoreError && m_core->status() != PackageManagerCore::Canceled) {
-            qDebug() << QString::fromLatin1("Operation \"%1\" with arguments \"%2\" failed: %3")
+            qDebug() << QString::fromLatin1("Operation '%1' with arguments: '%2' failed: %3")
                 .arg(operation->name(), operation->arguments().join(QLatin1String("; ")),
                 operation->errorString());
             const QMessageBox::StandardButton button =
@@ -1922,7 +1900,7 @@ void PackageManagerCorePrivate::installComponent(Component *component, double pr
 
     if (!component->stopProcessForUpdateRequests().isEmpty()) {
         Operation *stopProcessForUpdatesOp = KDUpdater::UpdateOperationFactory::instance()
-            .create(QLatin1String("FakeStopProcessForUpdate"), m_core);
+            .create(QLatin1String("FakeStopProcessForUpdate"));
         const QStringList arguments(component->stopProcessForUpdateRequests().join(QLatin1String(",")));
         stopProcessForUpdatesOp->setArguments(arguments);
         addPerformed(stopProcessForUpdatesOp);
@@ -1930,25 +1908,15 @@ void PackageManagerCorePrivate::installComponent(Component *component, double pr
     }
 
     // now mark the component as installed
-    m_localPackageHub->addPackage(component->name(),
-                                  component->value(scVersion),
-                                  component->value(scDisplayName),
-                                  component->value(scDescription),
-                                  component->dependencies(),
-                                  component->autoDependencies(),
-                                  component->forcedInstallation(),
-                                  component->isVirtual(),
-                                  component->value(scUncompressedSize).toULongLong(),
-                                  component->value(scInheritVersion),
-                                  component->isCheckable(),
-                                  component->isExpandedByDefault());
-    m_localPackageHub->writeToDisk();
+    KDUpdater::PackagesInfo &packages = *m_updaterApplication.packagesInfo();
+    packages.installPackage(component->name(), component->value(scVersion), component->value(scDisplayName),
+        component->value(scDescription), component->dependencies(), component->forcedInstallation(),
+        component->isVirtual(), component->value(scUncompressedSize).toULongLong(),
+        component->value(scInheritVersion));
+    packages.writeToDisk();
 
     component->setInstalled();
     component->markAsPerformedInstallation();
-
-    if (showDetailsLog)
-        ProgressCoordinator::instance()->emitDetailTextChanged(tr("Done"));
 }
 
 // -- private
@@ -2050,13 +2018,7 @@ void PackageManagerCorePrivate::registerMaintenanceTool()
     const quint64 limit = std::numeric_limits<quint32>::max(); // maximum 32 bit value
     if (estimatedSizeKB <= limit)
         settings.setValue(QLatin1String("EstimatedSize"), static_cast<quint32>(estimatedSizeKB));
-
-    const bool supportsModify = m_core->value(scSupportsModify, scTrue) == scTrue;
-    if (supportsModify)
-        settings.setValue(QLatin1String("NoModify"), 0);
-    else
-        settings.setValue(QLatin1String("NoModify"), 1);
-
+    settings.setValue(QLatin1String("NoModify"), 0);
     settings.setValue(QLatin1String("NoRepair"), 1);
 #endif
 }
@@ -2072,6 +2034,7 @@ void PackageManagerCorePrivate::unregisterMaintenanceTool()
 void PackageManagerCorePrivate::runUndoOperations(const OperationList &undoOperations, double progressSize,
     bool adminRightsGained, bool deleteOperation)
 {
+    KDUpdater::PackagesInfo &packages = *m_updaterApplication.packagesInfo();
     try {
         foreach (Operation *undoOperation, undoOperations) {
             if (statusCanceledOrFailed())
@@ -2102,12 +2065,12 @@ void PackageManagerCorePrivate::runUndoOperations(const OperationList &undoOpera
                     else if (button == QMessageBox::Ignore)
                         ignoreError = true;
                 }
-                Component *component = m_core->componentByName(PackageManagerCore::checkableName(componentName));
+                Component *component = m_core->componentByName(componentName);
                 if (!component)
                     component = componentsToReplace().value(componentName).second;
                 if (component) {
                     component->setUninstalled();
-                    m_localPackageHub->removePackage(component->name());
+                    packages.removePackage(component->name());
                 }
             }
 
@@ -2118,13 +2081,13 @@ void PackageManagerCorePrivate::runUndoOperations(const OperationList &undoOpera
                 delete undoOperation;
         }
     } catch (const Error &error) {
-        m_localPackageHub->writeToDisk();
+        packages.writeToDisk();
         throw Error(error.message());
     } catch (...) {
-        m_localPackageHub->writeToDisk();
+        packages.writeToDisk();
         throw Error(tr("Unknown error"));
     }
-    m_localPackageHub->writeToDisk();
+    packages.writeToDisk();
 }
 
 PackagesList PackageManagerCorePrivate::remotePackages()
@@ -2135,43 +2098,18 @@ PackagesList PackageManagerCorePrivate::remotePackages()
     m_updates = false;
     delete m_updateFinder;
 
-    m_updateFinder = new KDUpdater::UpdateFinder;
+    m_updateFinder = new KDUpdater::UpdateFinder(&m_updaterApplication);
     m_updateFinder->setAutoDelete(false);
-    m_updateFinder->setPackageSources(m_packageSources);
-    m_updateFinder->setLocalPackageHub(m_localPackageHub);
     m_updateFinder->run();
 
     if (m_updateFinder->updates().isEmpty()) {
-        setStatus(PackageManagerCore::Failure, tr("Cannot retrieve remote tree %1.")
+        setStatus(PackageManagerCore::Failure, tr("Could not retrieve remote tree: %1.")
             .arg(m_updateFinder->errorString()));
         return PackagesList();
     }
 
     m_updates = true;
     return m_updateFinder->updates();
-}
-
-PackagesList PackageManagerCorePrivate::compressedPackages()
-{
-    if (m_compressedUpdates && m_compressedFinder)
-        return m_compressedFinder->updates();
-    m_compressedUpdates = false;
-    delete m_compressedFinder;
-
-    m_compressedFinder = new KDUpdater::UpdateFinder;
-    m_compressedFinder->setAutoDelete(false);
-    m_compressedFinder->addCompressedPackage(true);
-    m_compressedFinder->setPackageSources(m_compressedPackageSources);
-
-    m_compressedFinder->setLocalPackageHub(m_localPackageHub);
-    m_compressedFinder->run();
-    if (m_compressedFinder->updates().isEmpty()) {
-        setStatus(PackageManagerCore::Failure, tr("Cannot retrieve remote tree %1.")
-            .arg(m_compressedFinder->errorString()));
-        return PackagesList();
-    }
-    m_compressedUpdates = true;
-    return m_compressedFinder->updates();
 }
 
 /*!
@@ -2181,53 +2119,50 @@ PackagesList PackageManagerCorePrivate::compressedPackages()
 */
 LocalPackagesHash PackageManagerCorePrivate::localInstalledPackages()
 {
-    if (isInstaller())
-        return LocalPackagesHash();
-
     LocalPackagesHash installedPackages;
-    if (m_localPackageHub->error() != LocalPackageHub::NoError) {
-        if (m_localPackageHub->fileName().isEmpty())
-            m_localPackageHub->setFileName(componentsXmlPath());
-        else
-            m_localPackageHub->refresh();
 
-        if (m_localPackageHub->applicationName().isEmpty())
-            m_localPackageHub->setApplicationName(m_data.settings().applicationName());
-        if (m_localPackageHub->applicationVersion().isEmpty())
-            m_localPackageHub->setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
-    }
+    if (!isInstaller()) {
+        KDUpdater::PackagesInfo &packagesInfo = *m_updaterApplication.packagesInfo();
+        if (!packagesInfo.isValid()) {
+            packagesInfo.setFileName(componentsXmlPath());
+            if (packagesInfo.applicationName().isEmpty())
+                packagesInfo.setApplicationName(m_data.settings().applicationName());
+            if (packagesInfo.applicationVersion().isEmpty())
+                packagesInfo.setApplicationVersion(QLatin1String(QUOTE(IFW_REPOSITORY_FORMAT_VERSION)));
+        }
 
-    if (m_localPackageHub->error() != LocalPackageHub::NoError) {
-        setStatus(PackageManagerCore::Failure, tr("Failure to read packages from %1.")
-            .arg(componentsXmlPath()));
-    }
+        if (packagesInfo.error() != KDUpdater::PackagesInfo::NoError)
+            setStatus(PackageManagerCore::Failure, tr("Failure to read packages from: %1.").arg(componentsXmlPath()));
 
-    foreach (const LocalPackage &package, m_localPackageHub->packageInfos()) {
-        if (statusCanceledOrFailed())
-            break;
-        installedPackages.insert(package.name, package);
-    }
+        foreach (const LocalPackage &package, packagesInfo.packageInfos()) {
+            if (statusCanceledOrFailed())
+                break;
+            installedPackages.insert(package.name, package);
+        }
+     }
 
     return installedPackages;
 }
 
 bool PackageManagerCorePrivate::fetchMetaInformationFromRepositories()
 {
+    if (m_repoFetched)
+        return m_repoFetched;
+
     m_updates = false;
     m_repoFetched = false;
     m_updateSourcesAdded = false;
 
     try {
-        m_metadataJob.addCompressedPackages(false);
         m_metadataJob.start();
         m_metadataJob.waitForFinished();
     } catch (Error &error) {
-        setStatus(PackageManagerCore::Failure, tr("Cannot retrieve meta information: %1")
+        setStatus(PackageManagerCore::Failure, tr("Could not retrieve meta information: %1")
             .arg(error.message()));
         return m_repoFetched;
     }
 
-    if (m_metadataJob.error() != Job::NoError) {
+    if (m_metadataJob.error() != KDJob::NoError) {
         switch (m_metadataJob.error()) {
             case QInstaller::UserIgnoreError:
                 break;  // we can simply ignore this error, the user knows about it
@@ -2241,46 +2176,9 @@ bool PackageManagerCorePrivate::fetchMetaInformationFromRepositories()
     return m_repoFetched;
 }
 
-bool PackageManagerCorePrivate::fetchMetaInformationFromCompressedRepositories()
+bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChecksum)
 {
-    bool compressedRepoFetched = false;
-
-    m_compressedUpdates = false;
-    m_updateSourcesAdded = false;
-
-    try {
-        //Tell MetadataJob that only compressed packages needed to be fetched and not all.
-        //We cannot do this in general fetch meta method as the compressed packages might be
-        //installed after components tree is generated
-        m_metadataJob.addCompressedPackages(true);
-        m_metadataJob.start();
-        m_metadataJob.waitForFinished();
-        m_metadataJob.addCompressedPackages(false);
-    } catch (Error &error) {
-        setStatus(PackageManagerCore::Failure, tr("Cannot retrieve meta information: %1")
-            .arg(error.message()));
-        return compressedRepoFetched;
-    }
-
-    if (m_metadataJob.error() != Job::NoError) {
-        switch (m_metadataJob.error()) {
-            case QInstaller::UserIgnoreError:
-                break;  // we can simply ignore this error, the user knows about it
-            default:
-                //Do not change core status here, we can recover if there is invalid
-                //compressed repository
-                setStatus(m_core->status(), m_metadataJob.errorString());
-                return compressedRepoFetched;
-        }
-    }
-
-    compressedRepoFetched = true;
-    return compressedRepoFetched;
-}
-
-bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChecksum, bool compressedRepository)
-{
-    if (!compressedRepository && m_updateSourcesAdded)
+    if (m_updateSourcesAdded)
         return m_updateSourcesAdded;
 
     const QList<Metadata> metadata = m_metadataJob.metadata();
@@ -2288,21 +2186,21 @@ bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChe
         m_updateSourcesAdded = true;
         return m_updateSourcesAdded;
     }
-    if (compressedRepository) {
-        m_compressedPackageSources.clear();
-    }
-    else {
-        m_packageSources.clear();
-        m_updates = false;
-        m_updateSourcesAdded = false;
-        if (isInstaller())
-            m_packageSources.insert(PackageSource(QUrl(QLatin1String("resource://metadata/")), 0));
+
+    // forces an refresh / clear on all update sources
+    m_updaterApplication.updateSourcesInfo()->refresh();
+    if (isInstaller()) {
+        m_updaterApplication.addUpdateSource(m_data.settings().applicationName(),
+            m_data.settings().applicationName(), QString(),
+            QUrl(QLatin1String("resource://metadata/")), 0);
+        m_updaterApplication.updateSourcesInfo()->setModified(false);
     }
 
+    m_updates = false;
+    m_updateSourcesAdded = false;
+
+    const QString &appName = m_data.settings().applicationName();
     foreach (const Metadata &data, metadata) {
-        if (compressedRepository && !data.repository.isCompressed()) {
-            continue;
-        }
         if (statusCanceledOrFailed())
             return false;
 
@@ -2316,7 +2214,7 @@ bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChe
                 QInstaller::openForRead(&updatesFile);
             } catch(const Error &e) {
                 qDebug() << "Error opening Updates.xml:" << e.message();
-                setStatus(PackageManagerCore::Failure, tr("Cannot add temporary update source information."));
+                setStatus(PackageManagerCore::Failure, tr("Could not add temporary update source information."));
                 return false;
             }
 
@@ -2325,9 +2223,9 @@ bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChe
             QString error;
             QDomDocument doc;
             if (!doc.setContent(&updatesFile, &error, &line, &column)) {
-                qDebug().nospace() << "Parse error in file" << updatesFile.fileName()
-                                   << ": " << error << " at line " << line << " col " << column;
-                setStatus(PackageManagerCore::Failure, tr("Cannot add temporary update source information."));
+                qDebug() << QString::fromLatin1("Parse error in file %4: %1 at line %2 col %3").arg(error,
+                    QString::number(line), QString::number(column), updatesFile.fileName());
+                setStatus(PackageManagerCore::Failure, tr("Could not add temporary update source information."));
                 return false;
             }
 
@@ -2335,16 +2233,14 @@ bool PackageManagerCorePrivate::addUpdateResourcesFromRepositories(bool parseChe
             if (!checksum.isNull())
                 m_core->setTestChecksum(checksum.toElement().text().toLower() == scTrue);
         }
-        if (compressedRepository)
-            m_compressedPackageSources.insert(PackageSource(QUrl::fromLocalFile(data.directory), 1));
-        else
-            m_packageSources.insert(PackageSource(QUrl::fromLocalFile(data.directory), 1));
-
+        m_updaterApplication.addUpdateSource(appName, appName, QString(),
+            QUrl::fromLocalFile(data.directory), 1);
         ProductKeyCheck::instance()->addPackagesFromXml(data.directory + QLatin1String("/Updates.xml"));
     }
-    if ((compressedRepository && m_compressedPackageSources.count() == 0 ) ||
-         (!compressedRepository && m_packageSources.count() == 0)) {
-        setStatus(PackageManagerCore::Failure, tr("Cannot find any update source information."));
+    m_updaterApplication.updateSourcesInfo()->setModified(false);
+
+    if (m_updaterApplication.updateSourcesInfo()->updateSourceInfoCount() == 0) {
+        setStatus(PackageManagerCore::Failure, tr("Could not find any update source information."));
         return false;
     }
 
@@ -2357,13 +2253,8 @@ void PackageManagerCorePrivate::restoreCheckState()
     if (m_coreCheckedHash.isEmpty())
         return;
 
-    foreach (Component *component, m_coreCheckedHash.keys()) {
+    foreach (Component *component, m_coreCheckedHash.keys())
         component->setCheckState(m_coreCheckedHash.value(component));
-        // Never allow component to be checked when it is unstable
-        // and not installed
-        if (component->isUnstable() && !component->isInstalled())
-            component->setCheckState(Qt::Unchecked);
-    }
 
     m_coreCheckedHash.clear();
     m_componentsToInstallCalculated = false;
@@ -2382,7 +2273,7 @@ void PackageManagerCorePrivate::storeCheckState()
 void PackageManagerCorePrivate::connectOperationCallMethodRequest(Operation *const operation)
 {
     QObject *const operationObject = dynamic_cast<QObject *> (operation);
-    if (operationObject != nullptr) {
+    if (operationObject != 0) {
         const QMetaObject *const mo = operationObject->metaObject();
         if (mo->indexOfSignal(QMetaObject::normalizedSignature("requestBlockingExecution(QString)")) > -1) {
             connect(operationObject, SIGNAL(requestBlockingExecution(QString)),
@@ -2401,19 +2292,25 @@ OperationList PackageManagerCorePrivate::sortOperationsBasedOnComponentDependenc
         const QString componentName = operation->value(QLatin1String("component")).toString();
         if (componentName.isEmpty())
             sortedOperations.append(operation);
-        else
-            componentOperationHash[componentName].append(operation);
+        else {
+            OperationList componentOperationList = componentOperationHash.value(componentName);
+            componentOperationList.append(operation);
+            componentOperationHash.insert(operation->value(QLatin1String("component")).toString(),
+                componentOperationList);
+        }
     }
 
+    const QString empty;
+    const QRegExp dash(QLatin1String("-.*"));
     Graph<QString> componentGraph;  // create the complete component graph
     foreach (const Component* node, m_core->components(PackageManagerCore::ComponentType::All)) {
         componentGraph.addNode(node->name());
-        componentGraph.addEdges(node->name(), m_core->parseNames(node->dependencies()));
+        componentGraph.addEdges(node->name(), node->dependencies().replaceInStrings(dash, empty));
     }
 
     const QStringList resolvedComponents = componentGraph.sort();
     if (componentGraph.hasCycle()) {
-        throw Error(tr("Dependency cycle between components \"%1\" and \"%2\" detected.")
+        throw Error(tr("Dependency cycle between components detected: '%1' and '%2'.")
             .arg(componentGraph.cycle().first, componentGraph.cycle().second));
     }
     foreach (const QString &componentName, resolvedComponents)
@@ -2425,48 +2322,8 @@ OperationList PackageManagerCorePrivate::sortOperationsBasedOnComponentDependenc
 void PackageManagerCorePrivate::handleMethodInvocationRequest(const QString &invokableMethodName)
 {
     QObject *obj = QObject::sender();
-    if (obj != nullptr)
+    if (obj != 0)
         QMetaObject::invokeMethod(obj, qPrintable(invokableMethodName));
 }
-
-void PackageManagerCorePrivate::processFilesForDelayedDeletion()
-{
-    if (m_filesForDelayedDeletion.isEmpty())
-        return;
-
-    const QStringList filesForDelayedDeletion = std::move(m_filesForDelayedDeletion);
-    foreach (const QString &i, filesForDelayedDeletion) {
-        QFile file(i);   //TODO: this should happen asnyc and report errors, I guess
-        if (file.exists() && !file.remove()) {
-            qWarning("Cannot delete file %s: %s", qPrintable(i),
-                qPrintable(file.errorString()));
-            m_filesForDelayedDeletion << i; // try again next time
-        }
-    }
-}
-
-void PackageManagerCorePrivate::findExecutablesRecursive(const QString &path, const QStringList &excludeFiles, QStringList *result)
-{
-    QString executable;
-    QDirIterator it(path, QDir::NoDotAndDotDot | QDir::Executable | QDir::Files | QDir::System, QDirIterator::Subdirectories );
-
-    while (it.hasNext()) {
-        executable = it.next();
-        foreach (QString exclude, excludeFiles) {
-            if (QDir::toNativeSeparators(executable.toLower())
-                    != QDir::toNativeSeparators(exclude.toLower())) {
-                result->append(executable);
-            }
-        }
-    }
-}
-
-QStringList PackageManagerCorePrivate::runningInstallerProcesses(const QStringList &excludeFiles)
-{
-    QStringList resultFiles;
-    findExecutablesRecursive(QCoreApplication::applicationDirPath(), excludeFiles, &resultFiles);
-    return checkRunningProcessesFromList(resultFiles);
-}
-
 
 } // namespace QInstaller

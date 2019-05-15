@@ -37,8 +37,8 @@ struct CExtractFolderInfo
   {
     if (fileIndex != kNumNoIndex)
     {
-      ExtractStatuses.ClearAndSetSize(1);
-      ExtractStatuses[0] = true;
+      ExtractStatuses.Reserve(1);
+      ExtractStatuses.Add(true);
     }
   };
 };
@@ -51,7 +51,7 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
   CMyComPtr<IArchiveExtractCallback> extractCallback = extractCallbackSpec;
   UInt64 importantTotalUnpacked = 0;
 
-  bool allFilesMode = (numItems == (UInt32)(Int32)-1);
+  bool allFilesMode = (numItems == (UInt32)-1);
   if (allFilesMode)
     numItems =
     #ifdef _7Z_VOL
@@ -60,17 +60,17 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
     _db.Files.Size();
     #endif
 
-  if (numItems == 0)
+  if(numItems == 0)
     return S_OK;
 
   /*
-  if (_volumes.Size() != 1)
+  if(_volumes.Size() != 1)
     return E_FAIL;
   const CVolume &volume = _volumes.Front();
-  const CDbEx &_db = volume.Database;
+  const CArchiveDatabaseEx &_db = volume.Database;
   IInStream *_inStream = volume.Stream;
   */
-
+  
   CObjectVector<CExtractFolderInfo> extractFolderInfoVector;
   for (UInt32 ii = 0; ii < numItems; ii++)
   {
@@ -86,10 +86,10 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
 
       int volumeIndex = ref.VolumeIndex;
       const CVolume &volume = _volumes[volumeIndex];
-      const CDbEx &db = volume.Database;
+      const CArchiveDatabaseEx &db = volume.Database;
       UInt32 fileIndex = ref.ItemIndex;
       #else
-      const CDbEx &db = _db;
+      const CArchiveDatabaseEx &db = _db;
       UInt32 fileIndex = ref2Index;
       #endif
 
@@ -115,13 +115,14 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
             volumeIndex,
             #endif
             kNumNoIndex, folderIndex));
-        UInt64 unpackSize = db.GetFolderUnpackSize(folderIndex);
+        const CFolder &folderInfo = db.Folders[folderIndex];
+        UInt64 unpackSize = folderInfo.GetUnpackSize();
         importantTotalUnpacked += unpackSize;
         extractFolderInfoVector.Back().UnpackSize = unpackSize;
       }
-
+      
       CExtractFolderInfo &efi = extractFolderInfoVector.Back();
-
+      
       // const CFolderInfo &folderInfo = m_dam_Folders[folderIndex];
       CNum startIndex = db.FolderStartFileIndex[folderIndex];
       for (CNum index = efi.ExtractStatuses.Size();
@@ -155,7 +156,7 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
   CMyComPtr<ICompressProgressInfo> progress = lps;
   lps->Init(extractCallback, false);
 
-  for (unsigned i = 0;; i++, totalUnpacked += curUnpacked, totalPacked += curPacked)
+  for (int i = 0;; i++, totalUnpacked += curUnpacked, totalPacked += curPacked)
   {
     lps->OutSize = totalUnpacked;
     lps->InSize = totalPacked;
@@ -163,7 +164,7 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
 
     if (i >= extractFolderInfoVector.Size())
       break;
-
+    
     const CExtractFolderInfo &efi = extractFolderInfoVector[i];
     curUnpacked = efi.UnpackSize;
     curPacked = 0;
@@ -173,9 +174,9 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
 
     #ifdef _7Z_VOL
     const CVolume &volume = _volumes[efi.VolumeIndex];
-    const CDbEx &db = volume.Database;
+    const CArchiveDatabaseEx &db = volume.Database;
     #else
-    const CDbEx &db = _db;
+    const CArchiveDatabaseEx &db = _db;
     #endif
 
     CNum startIndex;
@@ -199,7 +200,12 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
       continue;
 
     CNum folderIndex = efi.FolderIndex;
+    const CFolder &folderInfo = db.Folders[folderIndex];
+
     curPacked = _db.GetFolderFullPackSize(folderIndex);
+
+    CNum packStreamIndex = db.FolderStartPackStreamIndex[folderIndex];
+    UInt64 folderStartPackPos = db.GetFolderStreamPos(folderIndex, 0);
 
     #ifndef _NO_CRYPTO
     CMyComPtr<ICryptoGetTextPassword> getTextPassword;
@@ -210,24 +216,26 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
     try
     {
       #ifndef _NO_CRYPTO
-        bool isEncrypted = false;
-        bool passwordIsDefined = false;
+      bool passwordIsDefined;
       #endif
 
       HRESULT result = decoder.Decode(
           EXTERNAL_CODECS_VARS
           #ifdef _7Z_VOL
-            volume.Stream,
+          volume.Stream,
           #else
-            _inStream,
+          _inStream,
           #endif
-          db.ArcInfo.DataStartPosition,
-          db, folderIndex,
+          folderStartPackPos,
+          &db.PackSizes[packStreamIndex],
+          folderInfo,
           outStream,
           progress
-          _7Z_DECODER_CRYPRO_VARS
+          #ifndef _NO_CRYPTO
+          , getTextPassword, passwordIsDefined
+          #endif
           #if !defined(_7ZIP_ST) && !defined(_SFX)
-            , true, _numThreads
+          , true, _numThreads
           #endif
           );
 
@@ -238,7 +246,7 @@ STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
       }
       if (result == E_NOTIMPL)
       {
-        RINOK(folderOutStream->FlushCorrupted(NExtract::NOperationResult::kUnsupportedMethod));
+        RINOK(folderOutStream->FlushCorrupted(NExtract::NOperationResult::kUnSupportedMethod));
         continue;
       }
       if (result != S_OK)

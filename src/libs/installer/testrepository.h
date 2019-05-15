@@ -28,47 +28,55 @@
 #ifndef TESTREPOSITORY_H
 #define TESTREPOSITORY_H
 
-#include "downloadfiletask.h"
-#include "job.h"
-#include "repository.h"
+#include "qinstallerglobal.h"
 
-#include <QFutureWatcher>
-#include <QTimer>
+#include <repository.h>
+#include <settings.h>
+
+#include <kdjob.h>
+
+QT_BEGIN_NAMESPACE
+class QAuthenticator;
+class QLocale;
+class QVariant;
+QT_END_NAMESPACE
+
+namespace KDUpdater {
+    class FileDownloader;
+}
+
+namespace QInstaller {
+    class PackageManagerCore;
+}
 
 namespace QInstaller {
 
-class PackageManagerCore;
-
-class INSTALLER_EXPORT TestRepository : public Job
+class INSTALLER_EXPORT TestRepository : public KDJob
 {
     Q_OBJECT
-    Q_DISABLE_COPY(TestRepository)
 
 public:
-    explicit TestRepository(PackageManagerCore *parent = 0);
+
+    explicit TestRepository(QObject *parent = 0);
     ~TestRepository();
 
-    Repository repository() const;
-    void setRepository(const Repository &repository);
+    QInstaller::Repository repository() const;
+    void setRepository(const QInstaller::Repository &repository);
 
-private slots:
+private:
     void doStart();
     void doCancel();
 
-    void onTimeout();
+private Q_SLOTS:
     void downloadCompleted();
+    void downloadAborted(const QString &reason);
+    void onAuthenticatorChanged(const QAuthenticator &authenticator);
 
 private:
-    void reset();
-
-private:
-    PackageManagerCore *m_core;
-
-    QTimer m_timer;
-    Repository m_repository;
-    QFutureWatcher<FileTaskResult> m_xmlTask;
+    QInstaller::Repository m_repository;
+    KDUpdater::FileDownloader *m_downloader;
 };
 
-} // namespace QInstaller
+} //namespace QInstaller
 
 #endif  // TESTREPOSITORY_H

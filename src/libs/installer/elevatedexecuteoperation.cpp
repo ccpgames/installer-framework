@@ -31,10 +31,9 @@
 #include "environment.h"
 #include "qprocesswrapper.h"
 
-#include <QtCore/QDebug>
-#include <QtCore/QProcessEnvironment>
-#include <QtCore/QRegExp>
 #include <QtCore/QThread>
+#include <QtCore/QProcessEnvironment>
+#include <QtCore/QDebug>
 
 using namespace QInstaller;
 
@@ -43,7 +42,7 @@ class ElevatedExecuteOperation::Private
 public:
     explicit Private(ElevatedExecuteOperation *qq)
         : q(qq)
-        , process(nullptr)
+        , process(0)
         , showStandardError(false)
     {
     }
@@ -59,9 +58,8 @@ public:
     bool showStandardError;
 };
 
-ElevatedExecuteOperation::ElevatedExecuteOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
-    , d(new Private(this))
+ElevatedExecuteOperation::ElevatedExecuteOperation()
+    : d(new Private(this))
 {
     // this operation has to "overwrite" the Execute operation from KDUpdater
     setName(QLatin1String("Execute"));
@@ -76,9 +74,12 @@ bool ElevatedExecuteOperation::performOperation()
 {
     // This operation receives only one argument. It is the complete
     // command line of the external program to execute.
-    if (!checkArgumentCount(1, INT_MAX))
+    if (arguments().isEmpty()) {
+        setError(InvalidArguments);
+        setErrorString(tr("Invalid arguments in %0: %1 arguments given, %2 expected%3.")
+            .arg(name()).arg(arguments().count()).arg(tr("at least 1"), QLatin1String("")));
         return false;
-
+    }
     QStringList args;
     foreach (const QString &argument, arguments()) {
         if (argument!=QLatin1String("UNDOEXECUTE"))
@@ -138,7 +139,7 @@ bool ElevatedExecuteOperation::Private::run(const QStringList &arguments)
         const bool success = QProcessWrapper::startDetached(args.front(), args.mid(1));
         if (!success) {
             q->setError(UserDefinedError);
-            q->setErrorString(tr("Cannot start detached: \"%1\"").arg(callstr));
+            q->setErrorString(tr("Execution failed: Could not start detached: \"%1\"").arg(callstr));
         }
         return success;
     }
@@ -157,12 +158,12 @@ bool ElevatedExecuteOperation::Private::run(const QStringList &arguments)
     if (showStandardError)
         process->setProcessChannelMode(QProcessWrapper::MergedChannels);
 
-    connect(q, &ElevatedExecuteOperation::cancelProcess, process, &QProcessWrapper::cancel);
+    connect(q, SIGNAL(cancelProcess()), process, SLOT(cancel()));
 
     //we still like the none blocking possibility to perform this operation without threads
     QEventLoop loop;
     if (QThread::currentThread() == qApp->thread()) {
-        QObject::connect(process, &QProcessWrapper::finished, &loop, &QEventLoop::quit);
+        QObject::connect(process, SIGNAL(finished(int, QProcess::ExitStatus)), &loop, SLOT(quit()));
     }
     //readProcessOutput should only called from this current Thread -> Qt::DirectConnection
     QObject::connect(process, SIGNAL(readyRead()), q, SLOT(readProcessOutput()), Qt::DirectConnection);
@@ -181,7 +182,7 @@ bool ElevatedExecuteOperation::Private::run(const QStringList &arguments)
     if (!success) {
         q->setError(UserDefinedError);
         //TODO: pass errorString() through the wrapper */
-        q->setErrorString(tr("Cannot start: \"%1\": %2").arg(callstr,
+        q->setErrorString(tr("Execution failed: Could not start: \"%1\"(%2)").arg(callstr,
             process->errorString()));
         returnValue = false;
     }
@@ -197,14 +198,14 @@ bool ElevatedExecuteOperation::Private::run(const QStringList &arguments)
 
     if (process->exitStatus() == QProcessWrapper::CrashExit) {
         q->setError(UserDefinedError);
-        q->setErrorString(tr("Program crashed: \"%1\"").arg(callstr));
+        q->setErrorString(tr("Execution failed(Crash): \"%1\"").arg(callstr));
         returnValue = false;
     }
 
     if (!allowedExitCodes.contains(process->exitCode())) {
         q->setError(UserDefinedError);
         if (customErrorMessage.isEmpty()) {
-            q->setErrorString(tr("Execution failed (Unexpected exit code: %1): \"%2\"")
+            q->setErrorString(tr("Execution failed(Unexpected exit code: %1): \"%2\"")
                 .arg(QString::number(process->exitCode()), callstr));
         } else {
             q->setErrorString(customErrorMessage);
@@ -213,15 +214,14 @@ bool ElevatedExecuteOperation::Private::run(const QStringList &arguments)
         QByteArray standardErrorOutput = process->readAllStandardError();
         // in error case it would be useful to see something in verbose output
         if (!standardErrorOutput.isEmpty())
-            qWarning().noquote() << standardErrorOutput;
+            qWarning() << standardErrorOutput;
 
         returnValue = false;
     }
 
     Q_ASSERT(process);
-    Q_ASSERT(process->state() == QProcessWrapper::NotRunning);
-    delete process;
-    process = nullptr;
+    process->deleteLater();
+    process = 0;
 
     return returnValue;
 }
@@ -273,6 +273,11 @@ bool ElevatedExecuteOperation::testOperation()
 {
     // TODO
     return true;
+}
+
+Operation *ElevatedExecuteOperation::clone() const
+{
+    return new ElevatedExecuteOperation;
 }
 
 void ElevatedExecuteOperation::backup()

@@ -1,34 +1,32 @@
 // StreamBinder.h
 
-#ifndef __STREAM_BINDER_H
-#define __STREAM_BINDER_H
-
-#include "../../Windows/Synchronization.h"
+#ifndef __STREAMBINDER_H
+#define __STREAMBINDER_H
 
 #include "../IStream.h"
+#include "../../Windows/Synchronization.h"
 
 class CStreamBinder
 {
-  NWindows::NSynchronization::CManualResetEvent _canWrite_Event;
-  NWindows::NSynchronization::CManualResetEvent _canRead_Event;
-  NWindows::NSynchronization::CManualResetEvent _readingWasClosed_Event;
-  bool _waitWrite;
-  UInt32 _bufSize;
-  const void *_buf;
+  NWindows::NSynchronization::CManualResetEvent _allBytesAreWritenEvent;
+  NWindows::NSynchronization::CManualResetEvent _thereAreBytesToReadEvent;
+  NWindows::NSynchronization::CManualResetEvent _readStreamIsClosedEvent;
+  UInt32 _bufferSize;
+  const void *_buffer;
 public:
+  // bool ReadingWasClosed;
   UInt64 ProcessedSize;
+  CStreamBinder() {}
+  HRes CreateEvents();
 
-  WRes CreateEvents();
-  void CreateStreams(ISequentialInStream **inStream, ISequentialOutStream **outStream);
-  void ReInit();
+  void CreateStreams(ISequentialInStream **inStream,
+      ISequentialOutStream **outStream);
   HRESULT Read(void *data, UInt32 size, UInt32 *processedSize);
+  void CloseRead();
+
   HRESULT Write(const void *data, UInt32 size, UInt32 *processedSize);
-  void CloseRead() { _readingWasClosed_Event.Set(); }
-  void CloseWrite()
-  {
-    // _bufSize must be = 0
-    _canRead_Event.Set();
-  }
+  void CloseWrite();
+  void ReInit();
 };
 
 #endif

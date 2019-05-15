@@ -1,16 +1,18 @@
 #include "component.h"
 #include "componentmodel.h"
-#include "updatesinfo_p.h"
+
+#include "kdupdaterupdatesinfo_p.h"
+#include "kdupdaterupdatesourcesinfo.h"
+
 #include "packagemanagercore.h"
 
 #include <QTest>
-#include <QtCore/QLocale>
 
 using namespace KDUpdater;
 using namespace QInstaller;
 
-#define EXPECTED_COUNT_VIRTUALS_VISIBLE 11
-#define EXPECTED_COUNT_VIRTUALS_INVISIBLE 10
+#define EXPECTED_COUNT_VIRTUALS_VISIBLE 8
+#define EXPECTED_COUNT_VIRTUALS_INVISIBLE 7
 
 static const char vendorProduct[] = "com.vendor.product";
 static const char vendorSecondProduct[] = "com.vendor.second.product";
@@ -20,15 +22,6 @@ static const char vendorSecondProductVirtual[] = "com.vendor.second.product.virt
 static const char vendorSecondProductSubnode[] = "com.vendor.second.product.subnode";
 static const char vendorSecondProductSubnodeSub[] = "com.vendor.second.product.subnode.sub";
 static const char vendorThirdProductVirtual[] = "com.vendor.third.product.virtual";
-static const char vendorFourthProductCheckable[] = "com.vendor.fourth.product.checkable";
-static const char vendorFifthProductNonCheckable[] = "com.vendor.fifth.product.noncheckable";
-static const char vendorFifthProductSub[] = "com.vendor.fifth.product.noncheckable.sub";
-
-static const QMap<QString, QString> rootComponentDisplayNames = {
-    {"", QLatin1String("The root component")},
-    {"ru_ru", QString::fromUtf8("Корневая компонента")},
-    {"de_de", QString::fromUtf8("Wurzel Komponente")}
-};
 
 class tst_ComponentModel : public QObject
 {
@@ -48,9 +41,7 @@ private slots:
         m_defaultChecked << vendorProduct << vendorSecondProductSub;
         m_defaultPartially << vendorSecondProduct;
         m_defaultUnchecked << vendorSecondProductSub1 << vendorSecondProductSubnode
-            << vendorSecondProductSubnodeSub << vendorFourthProductCheckable
-            << vendorFifthProductSub;
-        m_uncheckable << vendorFifthProductNonCheckable;
+            << vendorSecondProductSubnodeSub;
     }
 
     void testNameToIndexAndIndexToName()
@@ -66,7 +57,7 @@ private slots:
 
         // all names should be resolvable, virtual components are not indexed if they are not visible
         QStringList all;
-        all << m_defaultChecked << m_defaultPartially << m_defaultUnchecked << m_uncheckable;
+        all << m_defaultChecked << m_defaultPartially << m_defaultUnchecked;
         foreach (const QString &name, all) {
             QVERIFY(model.indexFromComponentName(name).isValid());
             QVERIFY(model.componentFromIndex(model.indexFromComponentName(name)) != 0);
@@ -90,8 +81,8 @@ private slots:
 
         // all names should be resolvable, including virtual components
         QStringList all;
-        all << m_defaultChecked << m_defaultPartially << m_defaultUnchecked << m_uncheckable
-            << vendorSecondProductVirtual << vendorThirdProductVirtual;
+        all << m_defaultChecked << m_defaultPartially << m_defaultUnchecked << vendorSecondProductVirtual
+            << vendorThirdProductVirtual;
         foreach (const QString &name, all) {
             QVERIFY(model.indexFromComponentName(name).isValid());
             QVERIFY(model.componentFromIndex(model.indexFromComponentName(name)) != 0);
@@ -116,8 +107,7 @@ private slots:
 
         QCOMPARE(model.core(), &m_core);
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
-            + m_uncheckable);
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked);
 
         foreach (Component *const component, rootComponents)
             delete component;
@@ -136,10 +126,9 @@ private slots:
         testDefaultInheritedModelBehavior(&model, 1);
 
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        // the virtual and non-checkable components are not checked
-        testModelState(&model, m_defaultChecked, m_defaultPartially,
-            m_defaultUnchecked + m_uncheckable
-            + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual);
+        // the virtual components are not checked
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
+             + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual);
 
         foreach (Component *const component, rootComponents)
             delete component;
@@ -158,8 +147,7 @@ private slots:
         testDefaultInheritedModelBehavior(&model, 1);
 
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
-            + m_uncheckable);
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked);
 
         foreach (Component *const component, rootComponents)
             delete component;
@@ -179,8 +167,7 @@ private slots:
 
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
         // the virtual components are not checked
-        testModelState(&model, m_defaultChecked, m_defaultPartially,
-            m_defaultUnchecked + m_uncheckable
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
             + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual);
 
         foreach (Component *const component, rootComponents)
@@ -199,25 +186,23 @@ private slots:
         model.setRootComponents(rootComponents);
         testDefaultInheritedModelBehavior(&model, 1);
 
-        // select all possible components.
-        // Also uncheckable is checked as that is only 'visually' uncheckedable.
+        // select all possible components
         model.setCheckedState(ComponentModel::AllChecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllChecked);
-        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked + m_uncheckable,
-            QStringList(), QStringList());
+        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked, QStringList()
+            , QStringList());
 
         // deselect all possible components
         // as the first root is a forced install, should result in partially checked state
         model.setCheckedState(ComponentModel::AllUnchecked);
         QCOMPARE(model.checkedState(), ComponentModel::PartiallyChecked);
         testModelState(&model, QStringList() << vendorProduct, QStringList(), m_defaultPartially
-            + m_defaultUnchecked + QStringList(vendorSecondProductSub) + m_uncheckable);
+            + m_defaultUnchecked + QStringList(vendorSecondProductSub));
 
         // reset all possible components
         model.setCheckedState(ComponentModel::DefaultChecked);
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        testModelState(&model, m_defaultChecked, m_defaultPartially,
-            m_defaultUnchecked + m_uncheckable);
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked);
 
         foreach (Component *const component, rootComponents)
             delete component;
@@ -235,10 +220,10 @@ private slots:
         model.setRootComponents(rootComponents);
         testDefaultInheritedModelBehavior(&model, 1);
 
-        // select all possible components.
+        // select all possible components
         model.setCheckedState(ComponentModel::AllChecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllChecked);
-        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked + m_uncheckable
+        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked
             + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual, QStringList(),
             QStringList());
 
@@ -247,14 +232,13 @@ private slots:
         model.setCheckedState(ComponentModel::AllUnchecked);
         QCOMPARE(model.checkedState(), ComponentModel::PartiallyChecked);
         testModelState(&model, QStringList() << vendorProduct, QStringList(), m_defaultPartially
-            + m_defaultUnchecked + m_uncheckable + QStringList(vendorSecondProductSub)
-             << vendorSecondProductVirtual << vendorThirdProductVirtual);
+            + m_defaultUnchecked + QStringList(vendorSecondProductSub) << vendorSecondProductVirtual
+            << vendorThirdProductVirtual);
 
         // reset all possible components
         model.setCheckedState(ComponentModel::DefaultChecked);
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        testModelState(&model, m_defaultChecked, m_defaultPartially,
-            m_defaultUnchecked + m_uncheckable
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
             + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual);
 
         foreach (Component *const component, rootComponents)
@@ -273,24 +257,22 @@ private slots:
         model.setRootComponents(rootComponents);
         testDefaultInheritedModelBehavior(&model, 1);
 
-        // select all possible components.
+        // select all possible components
         model.setCheckedState(ComponentModel::AllChecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllChecked);
-        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked+ m_uncheckable,
-            QStringList(), QStringList());
+        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked, QStringList()
+            , QStringList());
 
         // deselect all possible components
         model.setCheckedState(ComponentModel::AllUnchecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllUnchecked);
-        testModelState(&model, QStringList(), QStringList(), m_defaultPartially
-            + m_defaultUnchecked + m_uncheckable
+        testModelState(&model, QStringList(), QStringList(), m_defaultPartially + m_defaultUnchecked
             + QStringList(vendorSecondProductSub) << vendorProduct);
 
         // reset all possible components
         model.setCheckedState(ComponentModel::DefaultChecked);
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
-        testModelState(&model, m_defaultChecked, m_defaultPartially,
-            m_defaultUnchecked + m_uncheckable);
+        testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked);
 
         foreach (Component *const component, rootComponents)
             delete component;
@@ -308,54 +290,28 @@ private slots:
         model.setRootComponents(rootComponents);
         testDefaultInheritedModelBehavior(&model, 1);
 
-        // select all possible components.
+        // select all possible components
         model.setCheckedState(ComponentModel::AllChecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllChecked);
-        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked +m_uncheckable
+        testModelState(&model, m_defaultChecked + m_defaultPartially + m_defaultUnchecked
             + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual, QStringList(),
             QStringList());
 
         // deselect all possible components
         model.setCheckedState(ComponentModel::AllUnchecked);
         QCOMPARE(model.checkedState(), ComponentModel::AllUnchecked);
-        testModelState(&model, QStringList(), QStringList(), m_defaultPartially
-            + m_defaultUnchecked + m_uncheckable + QStringList(vendorSecondProductSub)
-            << vendorSecondProductVirtual << vendorProduct << vendorThirdProductVirtual);
+        testModelState(&model, QStringList(), QStringList(), m_defaultPartially + m_defaultUnchecked
+            + QStringList(vendorSecondProductSub) << vendorSecondProductVirtual << vendorProduct
+             << vendorThirdProductVirtual);
 
         // reset all possible components
         model.setCheckedState(ComponentModel::DefaultChecked);
         QCOMPARE(model.checkedState(), ComponentModel::DefaultChecked);
         testModelState(&model, m_defaultChecked, m_defaultPartially, m_defaultUnchecked
-            + m_uncheckable + QStringList(vendorSecondProductVirtual)
-            << vendorThirdProductVirtual);
+            + QStringList(vendorSecondProductVirtual) << vendorThirdProductVirtual);
 
         foreach (Component *const component, rootComponents)
             delete component;
-    }
-
-    void testComponentsLocalization()
-    {
-        QStringList localesToTest = { "en_US", "ru_RU", "de_DE", "fr_FR" };
-        foreach (const QString &localeToTest, localesToTest) {
-            QLocale::setDefault(localeToTest);
-            QString expectedName = rootComponentDisplayNames.contains(localeToTest.toLower())
-                ? rootComponentDisplayNames[localeToTest.toLower()]
-                : rootComponentDisplayNames[QString()];
-
-            setPackageManagerOptions(NoFlags);
-
-            QList<Component*> rootComponents = loadComponents();
-            testComponentsLoaded(rootComponents);
-
-            // setup the model with 1 column
-            ComponentModel model(1, &m_core);
-            model.setRootComponents(rootComponents);
-
-            const QModelIndex root = model.indexFromComponentName(vendorProduct);
-            QCOMPARE(model.data(root, Qt::DisplayRole).toString(), expectedName);
-
-            qDeleteAll(rootComponents);
-        }
     }
 
 private:
@@ -367,8 +323,8 @@ private:
 
     void testComponentsLoaded(const QList<Component *> &rootComponents) const
     {
-        // we need to have five root components
-        QCOMPARE(rootComponents.count(), 5);
+        // we need to have three root components
+        QCOMPARE(rootComponents.count(), 3);
 
         QList<Component*> components = rootComponents;
         foreach (Component *const component, rootComponents)
@@ -383,9 +339,9 @@ private:
     {
         // row count with invalid model index should return:
         if (m_core.virtualComponentsVisible())
-            QCOMPARE(model->rowCount(), 5); // 5 (4 non virtual and 1 virtual root component)
+            QCOMPARE(model->rowCount(), 3); // 3 (2 non virtual and 1 virtual root component)
         else
-            QCOMPARE(model->rowCount(), 4); // 4 (the 4 non virtual root components)
+            QCOMPARE(model->rowCount(), 2); // 2 (the 2 non virtual root components)
         QCOMPARE(model->columnCount(), columnCount);
 
         const QModelIndex firstParent = model->indexFromComponentName(vendorProduct);
@@ -475,7 +431,6 @@ private:
             component->setValue("Default", info.data.value("Default").toString());
             component->setValue("Virtual", info.data.value("Virtual").toString());
             component->setValue("DisplayName", info.data.value("DisplayName").toString());
-            component->setValue("Checkable", info.data.value("Checkable").toString());
 
             QString forced = info.data.value("ForcedInstallation", scFalse).toString().toLower();
             if (m_core.noForceInstallation())
@@ -515,7 +470,6 @@ private:
     QStringList m_defaultChecked;
     QStringList m_defaultPartially;
     QStringList m_defaultUnchecked;
-    QStringList m_uncheckable;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(tst_ComponentModel::Options)
 

@@ -33,19 +33,10 @@
 #define TRUE 1
 #endif
 
-#define WINAPI
+#define WINAPI 
 
 #undef BOOL
 typedef int BOOL;
-
-
-#define CREATE_NEW	  1
-#define CREATE_ALWAYS	  2
-#define OPEN_EXISTING	  3
-#define OPEN_ALWAYS	  4
-/* #define TRUNCATE_EXISTING 5 */
-
-
 
 /* BEGIN #include <winnt.h> */
 /* BEGIN <winerror.h> */
@@ -55,11 +46,7 @@ typedef int BOOL;
 #define ERROR_INVALID_HANDLE        EBADF
 #define ERROR_PATH_NOT_FOUND        ENOENT
 #define ERROR_DISK_FULL             ENOSPC
-#define ERROR_NO_MORE_FILES         0x100018 // FIXME
-#define ERROR_DIRECTORY             267 // FIXME
-
-// #define ERROR_NEGATIVE_SEEK         0x100131 // FIXME
-
+#define ERROR_NO_MORE_FILES         0x100123 // FIXME
 
 /* see Common/WyWindows.h
 #define S_OK ((HRESULT)0x00000000L)
@@ -99,7 +86,7 @@ typedef TCHAR *LPTSTR;
  * The corresponding macros  _TEXT() and _T() for mapping _UNICODE strings
  * passed to C runtime functions are defined in mingw/tchar.h
  */
-#define TEXT(q) P7ZIP_TEXT(q)
+#define TEXT(q) P7ZIP_TEXT(q)    
 
 typedef BYTE BOOLEAN;
 
@@ -155,14 +142,11 @@ typedef struct _SYSTEMTIME {
 extern "C" {
 #endif
 
-BOOL WINAPI DosDateTimeToFileTime(WORD,WORD,FILETIME *);
-BOOL WINAPI FileTimeToDosDateTime(CONST FILETIME *,WORD *, WORD *);
 BOOL WINAPI FileTimeToLocalFileTime(CONST FILETIME *,FILETIME *);
+//BOOL WINAPI LocalFileTimeToFileTime(CONST FILETIME *,FILETIME *);
 BOOL WINAPI FileTimeToSystemTime(CONST FILETIME *,SYSTEMTIME *);
-BOOL WINAPI LocalFileTimeToFileTime(CONST FILETIME *,FILETIME *);
 VOID WINAPI GetSystemTime(SYSTEMTIME *);
 BOOL WINAPI SystemTimeToFileTime(const SYSTEMTIME*,FILETIME *);
-VOID WINAPI GetSystemTimeAsFileTime(FILETIME * time);
 
 DWORD WINAPI GetTickCount(VOID);
 
@@ -178,11 +162,11 @@ DWORD WINAPI GetTickCount(VOID);
 #define CP_UTF8  65001
 
 /* #include <unknwn.h> */
-#include "basetyps.h"
+#include <basetyps.h>
 struct IEnumSTATPROPSTG;
 
 typedef struct  tagSTATPROPSTG {
-        const OLECHAR * lpwstrName; /* to avoid some warnings : LPOLESTR lpwstrName; */
+	LPOLESTR lpwstrName;
 	PROPID propid;
 	VARTYPE vt;
 } STATPROPSTG;

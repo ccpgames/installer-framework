@@ -3,61 +3,83 @@
 #ifndef __HANDLER_OUT_H
 #define __HANDLER_OUT_H
 
+#include "../../../Common/MyString.h"
 #include "../../Common/MethodProps.h"
 
 namespace NArchive {
 
-class CMultiMethodProps
+struct COneMethodInfo
 {
-  UInt32 _level;
+  CObjectVector<CProp> Props;
+  UString MethodName;
+
+  bool IsLzma() const;
+};
+
+class COutHandler
+{
 public:
+  HRESULT SetProperty(const wchar_t *name, const PROPVARIANT &value);
+  
+  HRESULT SetSolidSettings(const UString &s);
+  HRESULT SetSolidSettings(const PROPVARIANT &value);
+
   #ifndef _7ZIP_ST
   UInt32 _numThreads;
-  UInt32 _numProcessors;
   #endif
 
   UInt32 _crcSize;
-  CObjectVector<COneMethodInfo> _methods;
-  COneMethodInfo _filterMethod;
-  bool _autoFilter;
 
-  void SetGlobalLevelAndThreads(COneMethodInfo &oneMethodInfo
+  CObjectVector<COneMethodInfo> _methods;
+  bool _removeSfxBlock;
+  
+  UInt64 _numSolidFiles;
+  UInt64 _numSolidBytes;
+  bool _numSolidBytesDefined;
+  bool _solidExtension;
+
+  bool _compressHeaders;
+  bool _encryptHeadersSpecified;
+  bool _encryptHeaders;
+
+  bool WriteCTime;
+  bool WriteATime;
+  bool WriteMTime;
+
+  bool _autoFilter;
+  UInt32 _level;
+
+  bool _volumeMode;
+
+  HRESULT SetParam(COneMethodInfo &oneMethodInfo, const UString &name, const UString &value);
+  HRESULT SetParams(COneMethodInfo &oneMethodInfo, const UString &srcString);
+
+  void SetCompressionMethod2(COneMethodInfo &oneMethodInfo
       #ifndef _7ZIP_ST
       , UInt32 numThreads
       #endif
       );
 
-  unsigned GetNumEmptyMethods() const
+  void InitSolidFiles() { _numSolidFiles = (UInt64)(Int64)(-1); }
+  void InitSolidSize()  { _numSolidBytes = (UInt64)(Int64)(-1); }
+  void InitSolid()
   {
-    unsigned i;
-    for (i = 0; i < _methods.Size(); i++)
-      if (!_methods[i].IsEmpty())
-        break;
-    return i;
+    InitSolidFiles();
+    InitSolidSize();
+    _solidExtension = false;
+    _numSolidBytesDefined = false;
   }
 
-  int GetLevel() const { return _level == (UInt32)(Int32)-1 ? 5 : (int)_level; }
-
   void Init();
 
-  CMultiMethodProps() { Init(); }
-  HRESULT SetProperty(const wchar_t *name, const PROPVARIANT &value);
-};
+  COutHandler() { Init(); }
 
-class CSingleMethodProps: public COneMethodInfo
-{
-  UInt32 _level;
+  void BeforeSetProperty();
 
-public:
-  #ifndef _7ZIP_ST
-  UInt32 _numThreads;
-  UInt32 _numProcessors;
-  #endif
-
-  void Init();
-  CSingleMethodProps() { Init(); }
-  int GetLevel() const { return _level == (UInt32)(Int32)-1 ? 5 : (int)_level; }
-  HRESULT SetProperties(const wchar_t **names, const PROPVARIANT *values, UInt32 numProps);
+  UInt32 minNumber;
+  UInt32 numProcessors;
+  UInt32 mainDicSize;
+  UInt32 mainDicMethodIndex;
 };
 
 }

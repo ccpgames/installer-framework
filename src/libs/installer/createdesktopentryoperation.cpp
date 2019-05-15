@@ -33,6 +33,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcessEnvironment>
 #include <QTextStream>
 
 using namespace QInstaller;
@@ -49,13 +50,16 @@ QString CreateDesktopEntryOperation::absoluteFileName()
     if (hasValue(QLatin1String("directory")))
         return QDir(value(QLatin1String("directory")).toString()).absoluteFilePath(filename);
 
-    QStringList XDG_DATA_HOME = QString::fromLocal8Bit(qgetenv("XDG_DATA_HOME"))
-                                                        .split(QLatin1Char(':'),
+    const QProcessEnvironment env;
+    QStringList XDG_DATA_DIRS = env.value(QLatin1String("XDG_DATA_DIRS")).split(QLatin1Char(':'),
+        QString::SkipEmptyParts);
+    QStringList XDG_DATA_HOME = env.value(QLatin1String("XDG_DATA_HOME")).split(QLatin1Char(':'),
         QString::SkipEmptyParts);
 
+    XDG_DATA_DIRS.push_back(QLatin1String("/usr/share")); // default path
     XDG_DATA_HOME.push_back(QDir::home().absoluteFilePath(QLatin1String(".local/share"))); // default path
 
-    const QStringList directories = XDG_DATA_HOME;
+    const QStringList directories = XDG_DATA_DIRS + XDG_DATA_HOME;
     QString directory;
     for (QStringList::const_iterator it = directories.begin(); it != directories.end(); ++it) {
         if (it->isEmpty())
@@ -87,8 +91,7 @@ QString CreateDesktopEntryOperation::absoluteFileName()
     return QDir(directory).absoluteFilePath(filename);
 }
 
-CreateDesktopEntryOperation::CreateDesktopEntryOperation(PackageManagerCore *core)
-    : UpdateOperation(core)
+CreateDesktopEntryOperation::CreateDesktopEntryOperation()
 {
     setName(QLatin1String("CreateDesktopEntry"));
 }
@@ -113,27 +116,32 @@ void CreateDesktopEntryOperation::backup()
     }
 
     if (!file.copy(value(QLatin1String("backupOfExistingDesktopEntry")).toString()))
-        setErrorString(tr("Cannot backup file \"%1\": %2").arg(QDir::toNativeSeparators(filename), file.errorString()));
+        setErrorString(tr("Could not backup file %1: %2").arg(filename, file.errorString()));
 }
 
 bool CreateDesktopEntryOperation::performOperation()
 {
-    if (!checkArgumentCount(2))
+    const QStringList args = arguments();
+    if (args.count() != 2) {
+        setError(InvalidArguments);
+        setErrorString(tr("Invalid arguments in %0: %1 arguments given, %2 expected%3.")
+            .arg(name()).arg(arguments().count()).arg(tr("exactly 2"), QLatin1String("")));
         return false;
+    }
 
     const QString filename = absoluteFileName();
-    const QString &values = arguments().at(1);
+    const QString &values = args[1];
 
     QFile file(filename);
     if (file.exists() && !file.remove()) {
         setError(UserDefinedError);
-        setErrorString(tr("Failed to overwrite file \"%1\".").arg(QDir::toNativeSeparators(filename)));
+        setErrorString(tr("Failed to overwrite %1").arg(filename));
         return false;
     }
 
     if(!file.open(QIODevice::WriteOnly)) {
         setError(UserDefinedError);
-        setErrorString(tr("Cannot write desktop entry to \"%1\".").arg(QDir::toNativeSeparators(filename)));
+        setErrorString(tr("Could not write Desktop Entry at %1").arg(filename));
         return false;
     }
 
@@ -159,7 +167,7 @@ bool CreateDesktopEntryOperation::undoOperation()
     // first remove the link
     QFile file(filename);
     if (file.exists() && !file.remove()) {
-        qWarning() << "Cannot delete file" << filename << ":" << file.errorString();
+        qWarning() << "Could not delete file" << filename << file.errorString();
         return true;
     }
 
@@ -169,13 +177,13 @@ bool CreateDesktopEntryOperation::undoOperation()
     QFile backupFile(value(QLatin1String("backupOfExistingDesktopEntry")).toString());
     if (!backupFile.exists()) {
         // do not treat this as a real error: The backup file might have been just nuked by the user.
-        qWarning() << "Cannot restore original desktop entry at" << filename
+        qWarning() << "Could not restore original desktop entry at" << filename
                    << ": Backup file" << backupFile.fileName() << "does not exist anymore.";
         return true;
     }
 
     if (!backupFile.rename(filename))
-        qWarning() << "Cannot restore the file" << filename << ":" << backupFile.errorString();
+        qWarning() << "Could not restore the file" << filename << ":" << backupFile.errorString();
 
     return true;
 }
@@ -183,4 +191,9 @@ bool CreateDesktopEntryOperation::undoOperation()
 bool CreateDesktopEntryOperation::testOperation()
 {
     return true;
+}
+
+Operation *CreateDesktopEntryOperation::clone() const
+{
+    return new CreateDesktopEntryOperation();
 }

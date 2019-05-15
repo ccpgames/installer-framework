@@ -36,7 +36,6 @@
 #include <QtCore/QFile>
 #include <QtCore/QIODevice>
 #include <QtCore/QLocale>
-#include <QtCore/QRegExp>
 #include <QtCore/QStack>
 
 #include <QXmlStreamReader>
@@ -126,7 +125,7 @@ RCCFileInfo::RCCFileInfo(const QString &name, const QFileInfo &fileInfo,
     m_language = language;
     m_country = country;
     m_flags = flags;
-    m_parent = nullptr;
+    m_parent = 0;
     m_nameOffset = 0;
     m_dataOffset = 0;
     m_childOffset = 0;
@@ -325,7 +324,7 @@ RCCResourceLibrary::Strings::Strings() :
 }
 
 RCCResourceLibrary::RCCResourceLibrary()
-  : m_root(nullptr),
+  : m_root(0),
     m_format(C_Code),
     m_verbose(false),
     m_compressLevel(CONSTANT_COMPRESSLEVEL_DEFAULT),
@@ -334,7 +333,7 @@ RCCResourceLibrary::RCCResourceLibrary()
     m_namesOffset(0),
     m_dataOffset(0),
     m_useNameSpace(CONSTANT_USENAMESPACE),
-    m_errorDevice(nullptr)
+    m_errorDevice(0)
 {
     m_out.reserve(30 * 1000 * 1000);
 }
@@ -550,7 +549,7 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
         return false;
     }
 
-    if (m_root == nullptr) {
+    if (m_root == 0) {
         const QString msg = QString::fromUtf8("RCC: Warning: No resources in '%1'.\n").arg(fname);
         m_errorDevice->write(msg.toUtf8());
         if (!ignoreErrors && m_format == Binary) {
@@ -606,9 +605,9 @@ void RCCResourceLibrary::reset()
 {
      if (m_root) {
         delete m_root;
-        m_root = nullptr;
+        m_root = 0;
     }
-    m_errorDevice = nullptr;
+    m_errorDevice = 0;
     m_failedResources.clear();
 }
 
@@ -709,25 +708,25 @@ bool RCCResourceLibrary::output(QIODevice &outDevice, QIODevice &errorDevice)
     if (m_verbose)
         m_errorDevice->write("Outputting code\n");
     if (!writeHeader()) {
-        m_errorDevice->write("Cannot write header\n");
+        m_errorDevice->write("Could not write header\n");
         return false;
     }
     if (m_root) {
         if (!writeDataBlobs()) {
-            m_errorDevice->write("Cannot write data blobs.\n");
+            m_errorDevice->write("Could not write data blobs.\n");
             return false;
         }
         if (!writeDataNames()) {
-            m_errorDevice->write("Cannot write file names\n");
+            m_errorDevice->write("Could not write file names\n");
             return false;
         }
         if (!writeDataStructure()) {
-            m_errorDevice->write("Cannot write data tree\n");
+            m_errorDevice->write("Could not write data tree\n");
             return false;
         }
     }
     if (!writeInitializer()) {
-        m_errorDevice->write("Cannot write footer\n");
+        m_errorDevice->write("Could not write footer\n");
         return false;
     }
     outDevice.write(m_out.constData(), m_out.size());

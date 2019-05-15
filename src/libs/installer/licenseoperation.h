@@ -35,14 +35,14 @@ namespace QInstaller {
 
 class INSTALLER_EXPORT LicenseOperation : public Operation
 {
-    Q_DECLARE_TR_FUNCTIONS(QInstaller::LicenseOperation)
 public:
-    explicit LicenseOperation(PackageManagerCore *core);
+    LicenseOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation* clone() const;
 };
 
 }   // namespace QInstaller

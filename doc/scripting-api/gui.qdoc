@@ -168,10 +168,3 @@
 /*!
     \qmlmethod void gui::setModified(boolean value)
 */
-
-/*!
-    \qmlmethod void gui::setTextItems(object control, string[] items)
-
-    Updates the model of \a control (which must be a QComboBox or QAbstractItemView)
-    such that it contains the given \a items.
-*/

@@ -34,52 +34,18 @@ int g_allocCountMid = 0;
 int g_allocCountBig = 0;
 #endif
 
-#ifdef P7ZIP_USE_ASM
-// #include <emmintrin.h>
-extern int posix_memalign (void **, size_t, size_t);
-void *align_alloc(size_t size)
-{
-  // return _mm_malloc(size,16);
-  void * ptr = 0;
-
-  if (posix_memalign (&ptr, 16, size) == 0)
-    return ptr;
-  else
-    return NULL;
-}
-
-void align_free(void * ptr)
-{
-  // _mm_free(ptr);
-  free(ptr);
-}
-
-
-#else
-void *align_alloc(size_t size)
-{
-	return malloc(size);
-}
-
-void align_free(void * ptr)
-{
-  free(ptr);
-}
-
-#endif
-
 void *MyAlloc(size_t size)
 {
   if (size == 0)
     return 0;
   #ifdef _SZ_ALLOC_DEBUG
   {
-    void *p = align_alloc(size);
+    void *p = malloc(size);
     fprintf(stderr, "\nAlloc %10d bytes, count = %10d,  addr = %8X", size, g_allocCount++, (unsigned)p);
     return p;
   }
   #else
-  return align_alloc(size);
+  return malloc(size);
   #endif
 }
 
@@ -89,7 +55,7 @@ void MyFree(void *address)
   if (address != 0)
     fprintf(stderr, "\nFree; count = %10d,  addr = %8X", --g_allocCount, (unsigned)address);
   #endif
-  align_free(address);
+  free(address);
 }
 
 #ifndef _WIN32
@@ -105,9 +71,9 @@ static char *g_HugetlbPath;
 
 #endif
 
-#ifdef _7ZIP_LARGE_PAGES
 static void *VirtualAlloc(size_t size, int memLargePages)
 {
+  #ifdef _7ZIP_LARGE_PAGES
   if (memLargePages)
   {
     #ifdef __linux__
@@ -156,14 +122,9 @@ static void *VirtualAlloc(size_t size, int memLargePages)
     return address;
     #endif
   }
-  return align_alloc(size);
+  #endif
+  return malloc(size);
 }
-#else
-static void *VirtualAlloc(size_t size, int memLargePages )
-{
-  return align_alloc(size);
-}
-#endif
 
 static int VirtualFree(void *address)
 {
@@ -182,7 +143,7 @@ static int VirtualFree(void *address)
   }
   #endif
   #endif
-  align_free(address);
+  free(address);
   return 1;
 }
 
@@ -294,7 +255,7 @@ void *BigAlloc(size_t size)
   #ifdef _SZ_ALLOC_DEBUG
   fprintf(stderr, "\nAlloc_Big %10d bytes;  count = %10d", size, g_allocCountBig++);
   #endif
-
+  
   #ifdef _7ZIP_LARGE_PAGES
   if (g_LargePageSize != 0 && g_LargePageSize <= (1 << 30) && size >= (1 << 18))
   {
@@ -312,7 +273,7 @@ void BigFree(void *address)
   if (address != 0)
     fprintf(stderr, "\nFree_Big; count = %10d", --g_allocCountBig);
   #endif
-
+  
   if (address == 0)
     return;
   VirtualFree(address);

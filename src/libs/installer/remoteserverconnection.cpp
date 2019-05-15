@@ -33,6 +33,7 @@
 #include "remoteserverconnection_p.h"
 #include "utils.h"
 #include "permissionsettings.h"
+#include "localsocket.h"
 
 #include <QCoreApplication>
 #include <QDataStream>
@@ -44,10 +45,10 @@ RemoteServerConnection::RemoteServerConnection(qintptr socketDescriptor, const Q
                                                QObject *parent)
     : QThread(parent)
     , m_socketDescriptor(socketDescriptor)
-    , m_process(nullptr)
-    , m_engine(nullptr)
+    , m_process(0)
+    , m_engine(0)
     , m_authorizationKey(key)
-    , m_signalReceiver(nullptr)
+    , m_signalReceiver(0)
 {
     setObjectName(QString::fromLatin1("RemoteServerConnection(%1)").arg(socketDescriptor));
 }
@@ -65,7 +66,7 @@ private:
 
 void RemoteServerConnection::run()
 {
-    QLocalSocket socket;
+    LocalSocket socket;
     socket.setSocketDescriptor(m_socketDescriptor);
     QScopedPointer<PermissionSettings> settings;
 
@@ -143,13 +144,13 @@ void RemoteServerConnection::run()
                 stream >> type;
                 if (type == QLatin1String(Protocol::QSettings)) {
                     settings.reset();
-                } else if (type == QLatin1String(Protocol::QProcess)) {
+                } else if (command == QLatin1String(Protocol::QProcess)) {
                     m_signalReceiver->m_receivedSignals.clear();
                     m_process->deleteLater();
-                    m_process = nullptr;
-                } else if (type == QLatin1String(Protocol::QAbstractFileEngine)) {
+                    m_process = 0;
+                } else if (command == QLatin1String(Protocol::QAbstractFileEngine)) {
                     delete m_engine;
-                    m_engine = nullptr;
+                    m_engine = 0;
                 }
                 return;
             }

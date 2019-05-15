@@ -43,21 +43,11 @@
 #include <QDirIterator>
 #include <QDomDocument>
 #include <QProcess>
-#include <QRegExp>
 #include <QSettings>
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 
 #include <iostream>
-
-#ifdef Q_OS_MACOS
-#include <QtCore/QtEndian>
-#include <QtCore/QFile>
-#include <QtCore/QVersionNumber>
-
-#include <mach-o/fat.h>
-#include <mach-o/loader.h>
-#endif
 
 using namespace QInstaller;
 
@@ -108,160 +98,7 @@ static void chmod755(const QString &absolutFilePath)
 }
 #endif
 
-#ifdef Q_OS_MACOS
-template <typename T = uint32_t> T readInt(QIODevice *ioDevice, bool *ok,
-                                           bool swap, bool peek = false) {
-    const auto bytes = peek
-            ? ioDevice->peek(sizeof(T))
-            : ioDevice->read(sizeof(T));
-    if (bytes.size() != sizeof(T)) {
-        if (ok)
-            *ok = false;
-        return T();
-    }
-    if (ok)
-        *ok = true;
-    T n = *reinterpret_cast<const T *>(bytes.constData());
-    return swap ? qbswap(n) : n;
-}
-
-static QVersionNumber readMachOMinimumSystemVersion(QIODevice *device)
-{
-    bool ok;
-    std::vector<qint64> machoOffsets;
-
-    qint64 pos = device->pos();
-    uint32_t magic = readInt(device, &ok, false);
-    if (magic == FAT_MAGIC || magic == FAT_CIGAM ||
-        magic == FAT_MAGIC_64 || magic == FAT_CIGAM_64) {
-        bool swap = magic == FAT_CIGAM || magic == FAT_CIGAM_64;
-        uint32_t nfat = readInt(device, &ok, swap);
-        if (!ok)
-            return QVersionNumber();
-
-        for (uint32_t n = 0; n < nfat; ++n) {
-            const bool is64bit = magic == FAT_MAGIC_64 || magic == FAT_CIGAM_64;
-            fat_arch_64 fat_arch;
-            fat_arch.cputype = static_cast<cpu_type_t>(readInt(device, &ok, swap));
-            if (!ok)
-                return QVersionNumber();
-
-            fat_arch.cpusubtype = static_cast<cpu_subtype_t>(readInt(device, &ok, swap));
-            if (!ok)
-                return QVersionNumber();
-
-            fat_arch.offset = is64bit
-                    ? readInt<uint64_t>(device, &ok, swap) : readInt(device, &ok, swap);
-            if (!ok)
-                return QVersionNumber();
-
-            fat_arch.size = is64bit
-                    ? readInt<uint64_t>(device, &ok, swap) : readInt(device, &ok, swap);
-            if (!ok)
-                return QVersionNumber();
-
-            fat_arch.align = readInt(device, &ok, swap);
-            if (!ok)
-                return QVersionNumber();
-
-            fat_arch.reserved = is64bit ? readInt(device, &ok, swap) : 0;
-            if (!ok)
-                return QVersionNumber();
-
-            machoOffsets.push_back(static_cast<qint64>(fat_arch.offset));
-        }
-    } else if (!ok) {
-        return QVersionNumber();
-    }
-
-    // Wasn't a fat file, so we just read a thin Mach-O from the original offset
-    if (machoOffsets.empty())
-        machoOffsets.push_back(pos);
-
-    std::vector<QVersionNumber> versions;
-
-    for (const auto &offset : machoOffsets) {
-        if (!device->seek(offset))
-            return QVersionNumber();
-
-        bool swap = false;
-        mach_header_64 header;
-        header.magic = readInt(device, nullptr, swap);
-        switch (header.magic) {
-        case MH_CIGAM:
-        case MH_CIGAM_64:
-            swap = true;
-            break;
-        case MH_MAGIC:
-        case MH_MAGIC_64:
-            break;
-        default:
-            return QVersionNumber();
-        }
-
-        header.cputype = static_cast<cpu_type_t>(readInt(device, &ok, swap));
-        if (!ok)
-            return QVersionNumber();
-
-        header.cpusubtype = static_cast<cpu_subtype_t>(readInt(device, &ok, swap));
-        if (!ok)
-            return QVersionNumber();
-
-        header.filetype = readInt(device, &ok, swap);
-        if (!ok)
-            return QVersionNumber();
-
-        header.ncmds = readInt(device, &ok, swap);
-        if (!ok)
-            return QVersionNumber();
-
-        header.sizeofcmds = readInt(device, &ok, swap);
-        if (!ok)
-            return QVersionNumber();
-
-        header.flags = readInt(device, &ok, swap);
-        if (!ok)
-            return QVersionNumber();
-
-        header.reserved = header.magic == MH_MAGIC_64 || header.magic == MH_CIGAM_64
-                ? readInt(device, &ok, swap) : 0;
-        if (!ok)
-            return QVersionNumber();
-
-        for (uint32_t i = 0; i < header.ncmds; ++i) {
-            const uint32_t cmd = readInt(device, nullptr, swap);
-            const uint32_t cmdsize = readInt(device, nullptr, swap);
-            if (cmd == 0 || cmdsize == 0)
-                return QVersionNumber();
-
-            switch (cmd) {
-            case LC_VERSION_MIN_MACOSX:
-            case LC_VERSION_MIN_IPHONEOS:
-            case LC_VERSION_MIN_TVOS:
-            case LC_VERSION_MIN_WATCHOS:
-                const uint32_t version = readInt(device, &ok, swap, true);
-                if (!ok)
-                    return QVersionNumber();
-
-                versions.push_back(QVersionNumber(
-                                       static_cast<int>(version >> 16),
-                                       static_cast<int>((version >> 8) & 0xff),
-                                       static_cast<int>(version & 0xff)));
-                break;
-            }
-
-            const qint64 remaining = static_cast<qint64>(cmdsize - sizeof(cmd) - sizeof(cmdsize));
-            if (device->read(remaining).size() != remaining)
-                return QVersionNumber();
-        }
-    }
-
-    std::sort(versions.begin(), versions.end());
-    return !versions.empty() ? versions.front() : QVersionNumber();
-}
-#endif
-
-static int assemble(Input input, const QInstaller::Settings &settings, const QString &signingIdentity)
+static int assemble(Input input, const QInstaller::Settings &settings)
 {
 #ifdef Q_OS_OSX
     if (QInstaller::isInBundle(input.installerExePath)) {
@@ -285,11 +122,6 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
     if (isBundle) {
         // output should be a bundle
         const QFileInfo fi(input.outputPath);
-
-        QString minimumSystemVersion;
-        QFile file(input.installerExePath);
-        if (file.open(QIODevice::ReadOnly))
-            minimumSystemVersion = readMachOMinimumSystemVersion(&file).normalized().toString();
 
         const QString contentsResourcesPath = fi.filePath() + QLatin1String("/Contents/Resources/");
 
@@ -321,38 +153,34 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
         infoPList.open(QIODevice::WriteOnly);
         QTextStream plistStream(&infoPList);
         plistStream << QLatin1String("<?xml version=\"1.0\" encoding=\"UTF-8\"?>") << endl;
-        plistStream << QLatin1String("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
-                                     "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">") << endl;
-        plistStream << QLatin1String("<plist version=\"1.0\">") << endl;
+        plistStream << QLatin1String("<!DOCTYPE plist SYSTEM \"file://localhost/System/Library/DTDs"
+            "/PropertyList.dtd\">") << endl;
+        plistStream << QLatin1String("<plist version=\"0.9\">") << endl;
         plistStream << QLatin1String("<dict>") << endl;
-        plistStream << QLatin1String("\t<key>CFBundleIconFile</key>") << endl;
-        plistStream << QLatin1String("\t<string>") << iconTargetFile << QLatin1String("</string>")
+        plistStream << QLatin1String("    <key>CFBundleIconFile</key>") << endl;
+        plistStream << QLatin1String("    <string>") << iconTargetFile << QLatin1String("</string>")
             << endl;
-        plistStream << QLatin1String("\t<key>CFBundlePackageType</key>") << endl;
-        plistStream << QLatin1String("\t<string>APPL</string>") << endl;
-        plistStream << QLatin1String("\t<key>CFBundleGetInfoString</key>") << endl;
+        plistStream << QLatin1String("    <key>CFBundlePackageType</key>") << endl;
+        plistStream << QLatin1String("    <string>APPL</string>") << endl;
+        plistStream << QLatin1String("    <key>CFBundleGetInfoString</key>") << endl;
 #define QUOTE_(x) #x
 #define QUOTE(x) QUOTE_(x)
-        plistStream << QLatin1String("\t<string>") << QLatin1String(QUOTE(IFW_VERSION_STR)) << ("</string>")
+        plistStream << QLatin1String("    <string>") << QLatin1String(QUOTE(IFW_VERSION_STR)) << ("</string>")
             << endl;
 #undef QUOTE
 #undef QUOTE_
-        plistStream << QLatin1String("\t<key>CFBundleSignature</key>") << endl;
-        plistStream << QLatin1String("\t<string>\?\?\?\?</string>") << endl;
-        plistStream << QLatin1String("\t<key>CFBundleExecutable</key>") << endl;
-        plistStream << QLatin1String("\t<string>") << fi.completeBaseName() << QLatin1String("</string>")
+        plistStream << QLatin1String("    <key>CFBundleSignature</key>") << endl;
+        plistStream << QLatin1String("    <string> ???? </string>") << endl;
+        plistStream << QLatin1String("    <key>CFBundleExecutable</key>") << endl;
+        plistStream << QLatin1String("    <string>") << fi.completeBaseName() << QLatin1String("</string>")
             << endl;
-        plistStream << QLatin1String("\t<key>CFBundleIdentifier</key>") << endl;
-        plistStream << QLatin1String("\t<string>com.yourcompany.installerbase</string>") << endl;
-        plistStream << QLatin1String("\t<key>NOTE</key>") << endl;
-        plistStream << QLatin1String("\t<string>This file was generated by Qt Installer Framework.</string>")
+        plistStream << QLatin1String("    <key>CFBundleIdentifier</key>") << endl;
+        plistStream << QLatin1String("    <string>com.yourcompany.installerbase</string>") << endl;
+        plistStream << QLatin1String("    <key>NOTE</key>") << endl;
+        plistStream << QLatin1String("    <string>This file was generated by Qt Installer Framework.</string>")
             << endl;
-        plistStream << QLatin1String("\t<key>NSPrincipalClass</key>") << endl;
-        plistStream << QLatin1String("\t<string>NSApplication</string>") << endl;
-        if (!minimumSystemVersion.isEmpty()) {
-            plistStream << QLatin1String("\t<key>LSMinimumSystemVersion</key>") << endl;
-            plistStream << QLatin1String("\t<string>") << minimumSystemVersion << QLatin1String("</string>") << endl;
-        }
+        plistStream << QLatin1String("    <key>NSPrincipalClass</key>") << endl;
+        plistStream << QLatin1String("    <string>NSApplication</string>") << endl;
         plistStream << QLatin1String("</dict>") << endl;
         plistStream << QLatin1String("</plist>") << endl;
 
@@ -365,7 +193,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
 
     QTemporaryFile file(input.outputPath);
     if (!file.open()) {
-        throw Error(QString::fromLatin1("Cannot copy %1 to %2: %3").arg(input.installerExePath,
+        throw Error(QString::fromLatin1("Could not copy %1 to %2: %3").arg(input.installerExePath,
             input.outputPath, file.errorString()));
     }
 
@@ -375,7 +203,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
 
     QFile instExe(input.installerExePath);
     if (!instExe.copy(tempFile)) {
-        throw Error(QString::fromLatin1("Cannot copy %1 to %2: %3").arg(instExe.fileName(),
+        throw Error(QString::fromLatin1("Could not copy %1 to %2: %3").arg(instExe.fileName(),
             tempFile, instExe.errorString()));
     }
 
@@ -400,7 +228,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
         chmod755(copyscript);
         QProcess p;
         p.start(copyscript, QStringList() << bundle);
-        p.waitForFinished(-1);
+        p.waitForFinished();
         QFile::rename(input.outputPath, tempFile);
         QFile::remove(copyscript);
     }
@@ -418,7 +246,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
     {
         QFile target(targetName);
         if (target.exists() && !target.remove()) {
-            qCritical("Cannot remove target %s: %s", qPrintable(target.fileName()),
+            qCritical("Could not remove target %s: %s", qPrintable(target.fileName()),
                 qPrintable(target.errorString()));
             QFile::remove(tempFile);
             return EXIT_FAILURE;
@@ -431,7 +259,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
 
 #ifdef Q_OS_OSX
         if (!exe.copy(input.outputPath)) {
-            throw Error(QString::fromLatin1("Cannot copy %1 to %2: %3").arg(exe.fileName(),
+            throw Error(QString::fromLatin1("Could not copy %1 to %2: %3").arg(exe.fileName(),
                 input.outputPath, exe.errorString()));
         }
 #else
@@ -446,7 +274,8 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
             qDebug() << "Creating resource archive for" << info.name;
             foreach (const QString &file, info.copiedFiles) {
                 const QSharedPointer<Resource> resource(new Resource(file));
-                qDebug().nospace() << "Appending " << file << " (" << humanReadableSize(resource->size()) << ")";
+                qDebug() << QString::fromLatin1("Appending %1 (%2)").arg(file,
+                    humanReadableSize(resource->size()));
                 collection.appendResource(resource);
             }
             input.manager.insertCollection(collection);
@@ -462,7 +291,7 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
     }
 
     if (!out.rename(targetName)) {
-        qCritical("Cannot write installer to %s: %s", targetName.toUtf8().constData(),
+        qCritical("Could not write installer to %s: %s", targetName.toUtf8().constData(),
             out.errorString().toUtf8().constData());
         QFile::remove(tempFile);
         return EXIT_FAILURE;
@@ -475,66 +304,21 @@ static int assemble(Input input, const QInstaller::Settings &settings, const QSt
     QFile::remove(tempFile);
 
 #ifdef Q_OS_OSX
-    if (isBundle && !signingIdentity.isEmpty()) {
-        qDebug() << "Signing .app bundle...";
-
-        QProcess p;
-        p.start(QLatin1String("codesign"),
-                QStringList() << QLatin1String("--force")
-                              << QLatin1String("--deep")
-                              << QLatin1String("--sign") << signingIdentity
-                              << bundle);
-
-        if (!p.waitForFinished(-1)) {
-            qCritical("Failed to sign app bundle: error while running '%s %s': %s",
-                      p.program().toUtf8().constData(),
-                      p.arguments().join(QLatin1Char(' ')).toUtf8().constData(),
-                      p.errorString().toUtf8().constData());
-            return EXIT_FAILURE;
-        }
-
-        if (p.exitStatus() == QProcess::NormalExit) {
-            if (p.exitCode() != 0) {
-                qCritical("Failed to sign app bundle: running codesign failed "
-                          "with exit code %d: %s", p.exitCode(),
-                          p.readAllStandardError().constData());
-                return EXIT_FAILURE;
-            }
-        }
-
-        qDebug() << "done.";
-    }
-
     bundleBackup.release();
 
     if (createDMG) {
         qDebug() << "creating a DMG disk image...";
-
-        const QString volumeName = QFileInfo(input.outputPath).fileName();
-        const QString imagePath = QString::fromLatin1("%1/%2.dmg")
-                                    .arg(QFileInfo(bundle).path())
-                                    .arg(volumeName);
-
         // no error handling as this is not fatal
+        const QString mkdmgscript = QDir::temp().absoluteFilePath(QLatin1String("mkdmg.sh"));
+        QFile::copy(QLatin1String(":/resources/mkdmg.sh"), mkdmgscript);
+        chmod755(mkdmgscript);
+
         QProcess p;
-        p.start(QLatin1String("/usr/bin/hdiutil"),
-                QStringList() << QLatin1String("create")
-                              << imagePath
-                              << QLatin1String("-srcfolder")
-                              << bundle
-                              << QLatin1String("-ov")
-                              << QLatin1String("-volname")
-                              << volumeName
-                              << QLatin1String("-fs")
-                              << QLatin1String("HFS+"));
-        qDebug() << "running " << p.program() << p.arguments();
-        p.waitForFinished(-1);
-        qDebug() << "removing" << bundle;
-        QDir(bundle).removeRecursively();
-        qDebug() <<  "done.";
+        p.start(mkdmgscript, QStringList() << QFileInfo(input.outputPath).fileName() << bundle);
+        p.waitForFinished();
+        QFile::remove(mkdmgscript);
+        qDebug() <<  "done." << mkdmgscript;
     }
-#else
-    Q_UNUSED(signingIdentity)
 #endif
     return EXIT_SUCCESS;
 }
@@ -546,7 +330,7 @@ QT_END_NAMESPACE
 static int runRcc(const QStringList &args)
 {
     const int argc = args.count();
-    QVector<char*> argv(argc, nullptr);
+    QVector<char*> argv(argc, 0);
     for (int i = 0; i < argc; ++i)
         argv[i] = qstrdup(qPrintable(args[i]));
 
@@ -583,7 +367,7 @@ static QSharedPointer<QInstaller::Resource> createDefaultResourceFile(const QStr
 {
     QTemporaryFile projectFile(directory + QLatin1String("/rccprojectXXXXXX.qrc"));
     if (!projectFile.open())
-        throw Error(QString::fromLatin1("Cannot create temporary file for generated rcc project file"));
+        throw Error(QString::fromLatin1("Could not create temporary file for generated rcc project file"));
     projectFile.close();
 
     const WorkingDirectoryChange wd(directory);
@@ -592,13 +376,13 @@ static QSharedPointer<QInstaller::Resource> createDefaultResourceFile(const QStr
     // 1. create the .qrc file
     if (runRcc(QStringList() << QLatin1String("rcc") << QLatin1String("-project") << QLatin1String("-o")
         << projectFileName) != EXIT_SUCCESS) {
-            throw Error(QString::fromLatin1("Cannot create rcc project file."));
+            throw Error(QString::fromLatin1("Could not create rcc project file."));
     }
 
     // 2. create the binary resource file from the .qrc file
     if (runRcc(QStringList() << QLatin1String("rcc") << QLatin1String("-binary") << QLatin1String("-o")
         << binaryName << projectFileName) != EXIT_SUCCESS) {
-            throw Error(QString::fromLatin1("Cannot compile rcc project file."));
+            throw Error(QString::fromLatin1("Could not compile rcc project file."));
     }
 
     return QSharedPointer<QInstaller::Resource>(new QInstaller::Resource(binaryName, binaryName
@@ -657,10 +441,6 @@ static void printUsage()
     std::cout << "  -rcc|--compile-resource   Compiles the default resource and outputs the result into"
         << std::endl;
     std::cout << "                            'update.rcc' in the current path." << std::endl;
-#ifdef Q_OS_OSX
-    std::cout << "  -s|--sign identity        Sign generated app bundle using the given code " << std::endl;
-    std::cout << "                            signing identity" << std::endl;
-#endif
     std::cout << std::endl;
     std::cout << "Packages are to be found in the current working directory and get listed as "
         "their names" << std::endl << std::endl;
@@ -707,7 +487,7 @@ void copyConfigData(const QString &configFile, const QString &targetDir)
 
         const QString tagName = domElement.tagName();
         const QString elementText = domElement.text();
-        qDebug().noquote() << QString::fromLatin1("Read dom element: <%1>%2</%1>.").arg(tagName, elementText);
+        qDebug() << QString::fromLatin1("Read dom element: <%1>%2</%1>.").arg(tagName, elementText);
 
         QString newName = domElement.text().replace(QRegExp(QLatin1String("\\\\|/|\\.|:")),
             QLatin1String("_"));
@@ -754,13 +534,6 @@ static int printErrorAndUsageAndExit(const QString &err)
 
 int main(int argc, char **argv)
 {
-// increase maximum numbers of file descriptors
-#if defined (Q_OS_MACOS)
-    struct rlimit rl;
-    getrlimit(RLIMIT_NOFILE, &rl);
-    rl.rlim_cur = qMin(static_cast<rlim_t>(OPEN_MAX), rl.rlim_max);
-    setrlimit(RLIMIT_NOFILE, &rl);
-#endif
     QCoreApplication app(argc, argv);
 
     QInstaller::init();
@@ -777,14 +550,12 @@ int main(int argc, char **argv)
     QString target;
     QString configFile;
     QStringList packagesDirectories;
-    QStringList repositoryDirectories;
     bool onlineOnly = false;
     bool offlineOnly = false;
     QStringList resources;
     QStringList filteredPackages;
     QInstallerTools::FilterType ftype = QInstallerTools::Exclude;
     bool compileResource = false;
-    QString signingIdentity;
 
     const QStringList args = app.arguments().mid(1);
     for (QStringList::const_iterator it = args.begin(); it != args.end(); ++it) {
@@ -801,16 +572,6 @@ int main(int argc, char **argv)
                     "specified location."));
             }
             packagesDirectories.append(*it);
-        } else if (*it == QLatin1String("--repository")) {
-            ++it;
-            if (it == args.end()) {
-                return printErrorAndUsageAndExit(QString::fromLatin1("Error: Repository parameter missing argument."));
-            }
-            if (QFileInfo(*it).exists()) {
-                repositoryDirectories.append(*it);
-            } else {
-                return printErrorAndUsageAndExit(QString::fromLatin1("Error: Only local filesystem repositories now supported."));
-            }
         } else if (*it == QLatin1String("-e") || *it == QLatin1String("--exclude")) {
             ++it;
             if (!filteredPackages.isEmpty())
@@ -882,13 +643,6 @@ int main(int argc, char **argv)
                 continue;
         } else if (*it == QLatin1String("-rcc") || *it == QLatin1String("--compile-resource")) {
             compileResource = true;
-#ifdef Q_OS_OSX
-        } else if (*it == QLatin1String("-s") || *it == QLatin1String("--sign")) {
-            ++it;
-            if (it == args.end() || it->startsWith(QLatin1String("-")))
-                return printErrorAndUsageAndExit(QString::fromLatin1("Error: No code signing identity specified."));
-            signingIdentity = *it;
-#endif
         } else {
             if (it->startsWith(QLatin1String("-"))) {
                 return printErrorAndUsageAndExit(QString::fromLatin1("Error: Unknown option \"%1\" used. Maybe you "
@@ -923,8 +677,8 @@ int main(int argc, char **argv)
     if (configFile.isEmpty())
         return printErrorAndUsageAndExit(QString::fromLatin1("Error: No configuration file selected."));
 
-    if (packagesDirectories.isEmpty() && repositoryDirectories.isEmpty())
-        return printErrorAndUsageAndExit(QString::fromLatin1("Error: Both Package directory and Repository parameters missing."));
+    if (packagesDirectories.isEmpty())
+        return printErrorAndUsageAndExit(QString::fromLatin1("Error: Package directory parameter missing."));
 
     qDebug() << "Parsed arguments, ok.";
 
@@ -942,29 +696,14 @@ int main(int argc, char **argv)
 
         // Note: the order here is important
 
-        QInstallerTools::PackageInfoVector packages;
+        // 1; create the list of available packages
+        QInstallerTools::PackageInfoVector packages =
+            QInstallerTools::createListOfPackages(packagesDirectories, &filteredPackages, ftype);
 
-        // 1; update the list of available compressed packages
-        if (!repositoryDirectories.isEmpty()) {
-            // 1.1; search packages
-            QInstallerTools::PackageInfoVector precompressedPackages = QInstallerTools::createListOfRepositoryPackages(repositoryDirectories,
-                &filteredPackages, ftype);
-            // 1.2; add to common vector
-            packages.append(precompressedPackages);
-        }
-
-        // 2; update the list of available prepared packages
-        if (!packagesDirectories.isEmpty()) {
-            // 2.1; search packages
-            QInstallerTools::PackageInfoVector preparedPackages = QInstallerTools::createListOfPackages(packagesDirectories,
-                &filteredPackages, ftype);
-            // 2.2; copy the packages data and setup the packages vector with the files we copied,
-            //    must happen before copying meta data because files will be compressed if
-            //    needed and meta data generation relies on this
-            QInstallerTools::copyComponentData(packagesDirectories, tmpRepoDir, &preparedPackages);
-            // 2.3; add to common vector
-            packages.append(preparedPackages);
-        }
+        // 2; copy the packages data and setup the packages vector with the files we copied,
+        //    must happen before copying meta data because files will be compressed if
+        //    needed and meta data generation relies on this
+        QInstallerTools::copyComponentData(packagesDirectories, tmpRepoDir, &packages);
 
         // 3; copy the meta data of the available packages, generate Updates.xml
         QInstallerTools::copyMetaData(tmpMetaDir, tmpRepoDir, packages, settings
@@ -975,11 +714,8 @@ int main(int argc, char **argv)
         {
             QSettings confInternal(tmpMetaDir + QLatin1String("/config/config-internal.ini")
                 , QSettings::IniFormat);
-            // assume offline installer if there are no repositories and no
-            //--online-only not set
-            offlineOnly = offlineOnly | settings.repositories().isEmpty();
-            if (onlineOnly)
-                offlineOnly = !onlineOnly;
+            // assume offline installer if there are no repositories
+            offlineOnly |= settings.repositories().isEmpty();
             confInternal.setValue(QLatin1String("offlineOnly"), offlineOnly);
         }
 
@@ -1001,7 +737,7 @@ int main(int argc, char **argv)
             input.installerExePath = templateBinary;
 
             qDebug() << "Creating the binary";
-            exitCode = assemble(input, settings, signingIdentity);
+            exitCode = assemble(input, settings);
         } else {
             createDefaultResourceFile(tmpMetaDir, QDir::currentPath() + QLatin1String("/update.rcc"));
             exitCode = EXIT_SUCCESS;

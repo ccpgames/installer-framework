@@ -47,7 +47,7 @@ public:
   UInt64 GetFullSize() const
   {
     UInt64 size = 0;
-    FOR_VECTOR (i, Sizes)
+    for (int i = 0; i < Sizes.Size(); i++)
       size += Sizes[i];
     return size;
   }

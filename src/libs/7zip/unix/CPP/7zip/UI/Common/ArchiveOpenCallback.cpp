@@ -2,10 +2,10 @@
 
 #include "StdAfx.h"
 
-#include "../../../Common/ComTry.h"
+#include "Common/StringConvert.h"
+#include "Common/ComTry.h"
 
-#include "../../../Windows/FileName.h"
-#include "../../../Windows/PropVariant.h"
+#include "Windows/PropVariant.h"
 
 #include "../../Common/FileStreams.h"
 
@@ -34,7 +34,7 @@ STDMETHODIMP COpenCallbackImp::SetCompleted(const UInt64 *files, const UInt64 *b
   return Callback->Open_SetCompleted(files, bytes);
   COM_TRY_END
 }
-
+  
 STDMETHODIMP COpenCallbackImp::GetProperty(PROPID propID, PROPVARIANT *value)
 {
   COM_TRY_BEGIN
@@ -60,48 +60,55 @@ STDMETHODIMP COpenCallbackImp::GetProperty(PROPID propID, PROPVARIANT *value)
   COM_TRY_END
 }
 
+int COpenCallbackImp::FindName(const UString &name)
+{
+  for (int i = 0; i < FileNames.Size(); i++)
+    if (name.CompareNoCase(FileNames[i]) == 0)
+      return i;
+  return -1;
+}
+
 struct CInFileStreamVol: public CInFileStream
 {
-  int FileNameIndex;
+  UString Name;
   COpenCallbackImp *OpenCallbackImp;
   CMyComPtr<IArchiveOpenCallback> OpenCallbackRef;
-  CInFileStreamVol(bool ignoreLink = false) : CInFileStream(ignoreLink) { }
   ~CInFileStreamVol()
   {
     if (OpenCallbackRef)
-      OpenCallbackImp->FileNames_WasUsed[FileNameIndex] = false;
+    {
+      int index = OpenCallbackImp->FindName(Name);
+      if (index >= 0)
+        OpenCallbackImp->FileNames.Delete(index);
+    }
   }
 };
 
 STDMETHODIMP COpenCallbackImp::GetStream(const wchar_t *name, IInStream **inStream)
 {
   COM_TRY_BEGIN
-  *inStream = NULL;
   if (_subArchiveMode)
     return S_FALSE;
   if (Callback)
   {
     RINOK(Callback->Open_CheckBreak());
   }
-  FString fullPath;
-  if (!NFile::NName::GetFullPath(_folderPrefix, us2fs(name), fullPath))
-    return S_FALSE;
-  if (!_fileInfo.Find(fullPath,true))
+  *inStream = NULL;
+  UString fullPath = _folderPrefix + name;
+  if (!_fileInfo.Find(fullPath))
     return S_FALSE;
   if (_fileInfo.IsDir())
     return S_FALSE;
-  CInFileStreamVol *inFile = new CInFileStreamVol(true);
+  CInFileStreamVol *inFile = new CInFileStreamVol;
   CMyComPtr<IInStream> inStreamTemp = inFile;
   if (!inFile->Open(fullPath))
     return ::GetLastError();
-
-  FileSizes.Add(_fileInfo.Size);
-  FileNames.Add(name);
-  inFile->FileNameIndex = FileNames_WasUsed.Add(true);
+  *inStream = inStreamTemp.Detach();
+  inFile->Name = name;
   inFile->OpenCallbackImp = this;
   inFile->OpenCallbackRef = this;
-  // TotalSize += _fileInfo.Size;
-  *inStream = inStreamTemp.Detach();
+  FileNames.Add(name);
+  TotalSize += _fileInfo.Size;
   return S_OK;
   COM_TRY_END
 }
@@ -123,3 +130,4 @@ STDMETHODIMP COpenCallbackImp::CryptoGetTextPassword(BSTR *password)
   COM_TRY_END
 }
 #endif
+  

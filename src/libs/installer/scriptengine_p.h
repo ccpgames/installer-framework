@@ -49,7 +49,7 @@ public:
     ConsoleProxy() {}
 
 public slots :
-        void log(const QString &log) { qDebug().noquote() << log; }
+        void log(const QString &log) { qDebug() << log; }
 };
 
 class InstallerProxy : public QObject
@@ -93,8 +93,7 @@ class QDesktopServicesProxy : public QObject
     Q_DISABLE_COPY(QDesktopServicesProxy)
 
 public:
-    QDesktopServicesProxy(ScriptEngine *engine)
-        : m_engine(engine){}
+    QDesktopServicesProxy() {}
 
 public slots :
     bool openUrl(const QString &url) const {
@@ -109,13 +108,6 @@ public slots :
     QString storageLocation(qint32 location) const {
         return QStandardPaths::writableLocation(QStandardPaths::StandardLocation(location));
     }
-    QJSValue findFiles(const QString &path, const QString &pattern);
-
-private:
-    void findRecursion(const QString &path, const QString &pattern, QStringList *result);
-
-private:
-    ScriptEngine *m_engine;
 };
 
 #if QT_VERSION < 0x050400
@@ -160,10 +152,6 @@ public:
 
     Q_INVOKABLE QJSValue findChild(QObject *parent, const QString &objectName);
     Q_INVOKABLE QList<QJSValue> findChildren(QObject *parent, const QString &objectName);
-
-    Q_INVOKABLE void setSilent(bool silent);
-
-    Q_INVOKABLE void setTextItems(QObject *object, const QStringList &items);
 
 signals:
     void interrupted();

@@ -39,13 +39,14 @@ class INSTALLER_EXPORT InstallIconsOperation : public QObject, public Operation
 {
     Q_OBJECT
 public:
-    explicit InstallIconsOperation(PackageManagerCore *core);
+    InstallIconsOperation();
     ~InstallIconsOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation *clone() const;
 
 Q_SIGNALS:
     void outputTextChanged(const QString &progress);

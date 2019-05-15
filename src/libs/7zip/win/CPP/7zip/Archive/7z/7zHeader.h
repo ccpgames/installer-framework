@@ -3,12 +3,12 @@
 #ifndef __7Z_HEADER_H
 #define __7Z_HEADER_H
 
-#include "../../../Common/MyTypes.h"
+#include "../../../Common/Types.h"
 
 namespace NArchive {
 namespace N7z {
 
-const unsigned kSignatureSize = 6;
+const int kSignatureSize = 6;
 extern Byte kSignature[kSignatureSize];
 
 // #define _7Z_VOL
@@ -57,11 +57,11 @@ namespace NID
     kHeader,
 
     kArchiveProperties,
-
+    
     kAdditionalStreamsInfo,
     kMainStreamsInfo,
     kFilesInfo,
-
+    
     kPackInfo,
     kUnpackInfo,
     kSubStreamsInfo,
@@ -82,17 +82,13 @@ namespace NID
     kCTime,
     kATime,
     kMTime,
-    kWinAttrib,
+    kWinAttributes,
     kComment,
 
     kEncodedHeader,
 
     kStartPos,
     kDummy
-
-    // kNtSecure,
-    // kParent,
-    // kIsAux
   };
 }
 

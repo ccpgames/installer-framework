@@ -26,10 +26,8 @@
 **
 **************************************************************************/
 
-#include <lib7z_create.h>
-#include <lib7z_extract.h>
-#include <lib7z_facade.h>
-#include <lib7z_list.h>
+#include "init.h"
+#include "lib7z_facade.h"
 
 #include <QDir>
 #include <QObject>
@@ -43,7 +41,7 @@ class tst_lib7zfacade : public QObject
 private slots:
     void initTestCase()
     {
-        Lib7z::initSevenZ();
+        QInstaller::init();
 
         m_file.path = "valid";
         m_file.permissions = 0;
@@ -51,7 +49,7 @@ private slots:
         m_file.uncompressedSize = 5242880;
         m_file.isDirectory = false;
         m_file.archiveIndex = QPoint(0, 0);
-        m_file.utcTime = QDateTime(QDate::fromJulianDay(2456413), QTime(10, 50, 42), Qt::UTC);
+        m_file.mtime = QDateTime(QDate::fromJulianDay(2456413), QTime(12, 50, 42));
     }
 
     void testIsSupportedArchive()
@@ -59,83 +57,61 @@ private slots:
         QCOMPARE(Lib7z::isSupportedArchive(":///data/valid.7z"), true);
         QCOMPARE(Lib7z::isSupportedArchive(":///data/invalid.7z"), false);
 
-        try {
+        {
             QFile file(":///data/valid.7z");
             QVERIFY(file.open(QIODevice::ReadOnly));
             QCOMPARE(Lib7z::isSupportedArchive(&file), true);
-        } catch (...) {
-            QFAIL("Unexpected error during Lib7z::isSupportedArchive.");
         }
 
-        try {
+        {
             QFile file(":///data/invalid.7z");
             QVERIFY(file.open(QIODevice::ReadOnly));
             QCOMPARE(Lib7z::isSupportedArchive(&file), false);
-        } catch (...) {
-            QFAIL("Unexpected error during Lib7z::isSupportedArchive.");
         }
     }
 
     void testListArchive()
     {
-        try {
+        // TODO: this should work without scope, there's a bug in Lib7z::OpenArchiveInfo
+        //       caused by the fact that we keep a pointer to the device, not the devices target
+        {
             QFile file(":///data/valid.7z");
             QVERIFY(file.open(QIODevice::ReadOnly));
 
             QVector<Lib7z::File> files = Lib7z::listArchive(&file);
             QCOMPARE(files.count(), 1);
+#ifdef Q_OS_UNIX
+            QSKIP("This test requires the time handling to be repaired first.");
+#endif
             QCOMPARE(files.first(), m_file);
-        } catch (...) {
-            QFAIL("Unexpected error during list archive.");
         }
 
-        try {
-            QFile file(":///data/invalid.7z");
-            QVERIFY(file.open(QIODevice::ReadOnly));
-            QVector<Lib7z::File> files = Lib7z::listArchive(&file);
-        } catch (const Lib7z::SevenZipException& e) {
-            QCOMPARE(e.message(), QString("Cannot open archive \":///data/invalid.7z\"."));
-        } catch (...) {
-            QFAIL("Unexpected error during list archive.");
+        {
+            try {
+                QFile file(":///data/invalid.7z");
+                QVERIFY(file.open(QIODevice::ReadOnly));
+                QVector<Lib7z::File> files = Lib7z::listArchive(&file);
+            } catch (const Lib7z::SevenZipException& e) {
+                QCOMPARE(e.message(), QString("Could not open archive"));
+            } catch (...) {
+                QFAIL("Unexpected error during list archive!");
+            }
         }
     }
 
     void testCreateArchive()
     {
-        try {
-            const QString path = tempSourceFile("Source File 1.");
-            const QString path2 = tempSourceFile("Source File 2.");
+        QTemporaryFile target;
+        QVERIFY(target.open());
 
-            QTemporaryFile target;
-            QVERIFY(target.open());
-            Lib7z::createArchive(&target, QStringList() << path << path2);
-            QCOMPARE(Lib7z::listArchive(&target).count(), 2);
+        try {
+            // TODO: we do not get any information about success
+            Lib7z::createArchive(&target, QStringList() << ":///data/invalid.7z");
         } catch (const Lib7z::SevenZipException& e) {
             QFAIL(e.message().toUtf8());
         } catch (...) {
-            QFAIL("Unexpected error during create archive.");
+            QFAIL("Unexpected error during create archive!");
         }
-
-        try {
-            const QString path1 = tempSourceFile(
-                "Source File 1.",
-                QDir::tempPath() + "/temp file with spaces.XXXXXX"
-            );
-            const QString path2 = tempSourceFile(
-                "Source File 2.",
-                QDir::tempPath() + "/temp file with spaces.XXXXXX"
-            );
-
-            QTemporaryFile target(QDir::tempPath() + "/target file with spaces.XXXXXX");
-            QVERIFY(target.open());
-            Lib7z::createArchive(&target, QStringList() << path1 << path2);
-            QCOMPARE(Lib7z::listArchive(&target).count(), 2);
-        } catch (const Lib7z::SevenZipException& e) {
-            QFAIL(e.message().toUtf8());
-        } catch (...) {
-            QFAIL("Unexpected error during create archive.");
-        }
-
     }
 
     void testExtractArchive()
@@ -144,26 +120,46 @@ private slots:
         QVERIFY(source.open(QIODevice::ReadOnly));
 
         try {
+            // TODO: we do not get any information about success
             Lib7z::extractArchive(&source, QDir::tempPath());
-            QCOMPARE(QFile::exists(QDir::tempPath() + QString("/valid")), true);
         } catch (const Lib7z::SevenZipException& e) {
             QFAIL(e.message().toUtf8());
         } catch (...) {
-            QFAIL("Unexpected error during extract archive.");
+            QFAIL("Unexpected error during extract archive!");
         }
     }
 
-private:
-    QString tempSourceFile(const QByteArray &data, const QString &templateName = QString())
+    void testExtractFileFromArchive()
     {
-        QTemporaryFile source;
-        if (!templateName.isEmpty()) {
-            source.setFileTemplate(templateName);
+        QFile source(":///data/valid.7z");
+        QVERIFY(source.open(QIODevice::ReadOnly));
+
+        QTemporaryFile target;
+        QVERIFY(target.open());
+
+        try {
+            // TODO: we do not get any information about success
+            Lib7z::extractFileFromArchive(&source, m_file, &target);
+        } catch (const Lib7z::SevenZipException& e) {
+            QFAIL(e.message().toUtf8());
+        } catch (...) {
+            QFAIL("Unexpected error during extract file from archive!");
         }
-        source.open();
-        source.write(data);
-        source.setAutoRemove(false);
-        return source.fileName();
+    }
+
+    void testExtractFileFromArchive2()
+    {
+        QFile source(":///data/valid.7z");
+        QVERIFY(source.open(QIODevice::ReadOnly));
+
+        try {
+            // TODO: we do not get any information about success
+            Lib7z::extractFileFromArchive(&source, m_file, QDir::tempPath());
+        } catch (const Lib7z::SevenZipException& e) {
+            QFAIL(e.message().toUtf8());
+        } catch (...) {
+            QFAIL("Unexpected error during extract file from archive!");
+        }
     }
 
 private:

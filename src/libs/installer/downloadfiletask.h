@@ -30,7 +30,7 @@
 #define DOWNLOADFILETASK_H
 
 #include "abstractfiletask.h"
-#include "filedownloaderfactory.h"
+#include "kdupdaterfiledownloaderfactory.h"
 
 #include <QAuthenticator>
 Q_DECLARE_METATYPE(QAuthenticator)

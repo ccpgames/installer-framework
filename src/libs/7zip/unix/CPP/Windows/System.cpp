@@ -20,7 +20,7 @@
 #endif
 
 
-#include "Common/MyTypes.h"
+#include "Common/Types.h"
 
 namespace NWindows
 {

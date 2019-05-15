@@ -3,10 +3,8 @@
 #ifndef __STREAM_OBJECTS_H
 #define __STREAM_OBJECTS_H
 
-#include "../../Common/MyBuffer.h"
+#include "../../Common/Buffer.h"
 #include "../../Common/MyCom.h"
-#include "../../Common/MyVector.h"
-
 #include "../IStream.h"
 
 struct CReferenceBuf:
@@ -33,15 +31,12 @@ public:
     _pos = 0;
     _ref = ref;
   }
-  void Init(CReferenceBuf *ref) { Init(ref->Buf, ref->Buf.Size(), ref); }
+  void Init(CReferenceBuf *ref) { Init(ref->Buf, ref->Buf.GetCapacity(), ref); }
 
-  MY_UNKNOWN_IMP2(ISequentialInStream, IInStream)
+  MY_UNKNOWN_IMP1(IInStream)
   STDMETHOD(Read)(void *data, UInt32 size, UInt32 *processedSize);
   STDMETHOD(Seek)(Int64 offset, UInt32 seekOrigin, UInt64 *newPosition);
 };
-
-// void Create_BufInStream_WithReference(const void *data, size_t size, ISequentialInStream **stream);
-void Create_BufInStream_WithNewBuf(const void *data, size_t size, ISequentialInStream **stream);
 
 class CByteDynBuffer
 {
@@ -51,11 +46,11 @@ public:
   CByteDynBuffer(): _capacity(0), _buf(0) {};
   // there is no copy constructor. So don't copy this object.
   ~CByteDynBuffer() { Free(); }
-  void Free() throw();
-  size_t GetCapacity() const { return _capacity; }
-  operator Byte*() const { return _buf; };
+  void Free();
+  size_t GetCapacity() const { return  _capacity; }
+  operator Byte*() { return _buf; };
   operator const Byte*() const { return _buf; };
-  bool EnsureCapacity(size_t capacity) throw();
+  bool EnsureCapacity(size_t capacity);
 };
 
 class CDynBufSeqOutStream:
@@ -73,7 +68,7 @@ public:
   Byte *GetBufPtrForWriting(size_t addSize);
   void UpdateSize(size_t addSize) { _size += addSize; }
 
-  MY_UNKNOWN_IMP1(ISequentialOutStream)
+  MY_UNKNOWN_IMP
   STDMETHOD(Write)(const void *data, UInt32 size, UInt32 *processedSize);
 };
 
@@ -93,7 +88,7 @@ public:
   }
   size_t GetPos() const { return _pos; }
 
-  MY_UNKNOWN_IMP1(ISequentialOutStream)
+  MY_UNKNOWN_IMP
   STDMETHOD(Write)(const void *data, UInt32 size, UInt32 *processedSize);
 };
 
@@ -108,7 +103,7 @@ public:
   void Init() { _size = 0; }
   UInt64 GetSize() const { return _size; }
 
-  MY_UNKNOWN_IMP1(ISequentialOutStream)
+  MY_UNKNOWN_IMP
   STDMETHOD(Write)(const void *data, UInt32 size, UInt32 *processedSize);
 };
 
@@ -128,9 +123,9 @@ protected:
 public:
   CCachedInStream(): _tags(0), _data(0) {}
   virtual ~CCachedInStream() { Free(); } // the destructor must be virtual (release calls it) !!!
-  void Free() throw();
-  bool Alloc(unsigned blockSizeLog, unsigned numBlocksLog) throw();
-  void Init(UInt64 size) throw();
+  void Free();
+  bool Alloc(unsigned blockSizeLog, unsigned numBlocksLog);
+  void Init(UInt64 size);
 
   MY_UNKNOWN_IMP2(ISequentialInStream, IInStream)
   STDMETHOD(Read)(void *data, UInt32 size, UInt32 *processedSize);

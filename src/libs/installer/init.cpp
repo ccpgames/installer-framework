@@ -48,19 +48,74 @@
 #include "settingsoperation.h"
 #include "consumeoutputoperation.h"
 #include "postoperation.h"
-#include "lib7z_facade.h"
+
 #include "utils.h"
 
-#include "updateoperationfactory.h"
-#include "filedownloaderfactory.h"
+#include "kdupdaterupdateoperationfactory.h"
+#include "kdupdaterfiledownloaderfactory.h"
+
+#include "7zCrc.h"
 
 #include <QtPlugin>
 #include <QElapsedTimer>
 
 #include <iostream>
 
+namespace NArchive {
+    namespace NXz {
+        void registerArcxz();
+    }
+    namespace NSplit {
+        void registerArcSplit();
+    }
+    namespace NLzma {
+        namespace NLzmaAr {
+            void registerArcLzma();
+        }
+        namespace NLzma86Ar {
+            void registerArcLzma86();
+        }
+    }
+}
+
+void registerArc7z();
+
+void registerCodecBCJ();
+void registerCodecBCJ2();
+
+void registerCodecCopy();
+void registerCodecLZMA();
+void registerCodecLZMA2();
+
+void registerCodecDelta();
+void registerCodecBranch();
+void registerCodecByteSwap();
+
 using namespace KDUpdater;
 using namespace QInstaller;
+
+static void initArchives()
+{
+    CrcGenerateTable();
+
+    registerArc7z();
+
+    registerCodecBCJ();
+    registerCodecBCJ2();
+
+    registerCodecCopy();
+    registerCodecLZMA();
+    registerCodecLZMA2();
+
+    registerCodecDelta();
+    registerCodecBranch();
+    registerCodecByteSwap();
+
+    NArchive::NXz::registerArcxz();
+    NArchive::NSplit::registerArcSplit();
+    NArchive::NLzma::NLzmaAr::registerArcLzma();
+    NArchive::NLzma::NLzma86Ar::registerArcLzma86();
+}
 
 #if defined(QT_STATIC)
 static void initResources()
@@ -130,7 +185,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
         std::cout << qPrintable(ba) << std::endl;
 
     if (type == QtFatalMsg) {
-        QtMessageHandler oldMsgHandler = qInstallMessageHandler(nullptr);
+        QtMessageHandler oldMsgHandler = qInstallMessageHandler(0);
         qt_message_output(type, context, msg);
         qInstallMessageHandler(oldMsgHandler);
     }
@@ -138,8 +193,7 @@ void messageHandler(QtMsgType type, const QMessageLogContext &context, const QSt
 
 void QInstaller::init()
 {
-    Lib7z::initSevenZ();
-
+    ::initArchives();
 #if defined(QT_STATIC)
     ::initResources();
 #endif

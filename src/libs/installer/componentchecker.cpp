@@ -45,12 +45,6 @@ QStringList ComponentChecker::checkComponent(Component *component)
     if (!core)
         return checkResult;
 
-    if (component->childCount() && !component->archives().isEmpty()) {
-        checkResult << QString::fromLatin1("Component %1 contains data to be installed "
-            "while having child components. This may not work properly.")
-            .arg(component->name());
-    }
-
     const bool defaultPropertyScriptValue = component->variables().value(scDefault).compare(scScript, Qt::CaseInsensitive) == 0;
     const bool defaultPropertyValue = component->variables().value(scDefault).compare(scTrue, Qt::CaseInsensitive) == 0;
     const QStringList autoDependencies = component->autoDependencies();
@@ -75,6 +69,16 @@ QStringList ComponentChecker::checkComponent(Component *component)
             checkResult << QString::fromLatin1("Other components depend on auto dependent "
                 "component %1. This may not work properly.")
                 .arg(component->name());
+        }
+        const QStringList dependencies = component->dependencies();
+        foreach (const QString &dependency, dependencies) {
+            Component *dependencyComponent = PackageManagerCore::componentByName(
+                        dependency, allComponents);
+            if (dependencyComponent && autoDependencies.contains(dependencyComponent->name())) {
+                checkResult << QString::fromLatin1("Component %1 specifies both dependency "
+                    "and auto dependency on component %2. The dependency might be superfluous.")
+                    .arg(component->name(), dependencyComponent->name());
+            }
         }
     }
     if (component->packageManagerCore()->isInstaller()) {
@@ -118,13 +122,13 @@ QStringList ComponentChecker::checkComponent(Component *component)
                 Moreover, the "Next" button will be disabled.
                 */
                 checkResult << QString::fromLatin1("Component %1 auto depends on other components "
-                    "while having child components. This will not work properly.")
+                    "while having children components. This will not work properly.")
                     .arg(component->name());
             }
 
             if (!component->dependencies().isEmpty()) {
                 checkResult << QString::fromLatin1("Component %1 depends on other components "
-                    "while having child components. This will not work properly.")
+                    "while having children components. This will not work properly.")
                     .arg(component->name());
             }
 
@@ -144,7 +148,7 @@ QStringList ComponentChecker::checkComponent(Component *component)
                 Moreover, the "Next" button will be disabled.
                 */
                 checkResult << QString::fromLatin1("Other components depend on component %1 "
-                    "which has child components. This will not work properly.")
+                    "which has children components. This will not work properly.")
                     .arg(component->name());
             }
         }

@@ -28,7 +28,6 @@
 #include "repositorymanager.h"
 
 #include <QDebug>
-#include <QDir>
 #include <QFile>
 #include <QStringList>
 #include <QUrl>
@@ -62,7 +61,7 @@ RepositoryManager::RepositoryManager(QObject *parent) :
     QObject(parent)
 {
     manager = new QNetworkAccessManager(this);
-    connect(manager, &QNetworkAccessManager::finished, this, &RepositoryManager::receiveRepository);
+    connect(manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(receiveRepository(QNetworkReply*)));
     productionMap.clear();
     updateMap.clear();
 }
@@ -71,7 +70,7 @@ void RepositoryManager::setProductionRepository(const QString &repo)
 {
     QUrl url(repo);
     if (!url.isValid()) {
-        QMessageBox::critical(nullptr, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
+        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
         return;
     }
 
@@ -83,7 +82,7 @@ void RepositoryManager::setUpdateRepository(const QString &repo)
 {
     QUrl url(repo);
     if (!url.isValid()) {
-        QMessageBox::critical(nullptr, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
+        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Specified URL is not valid"));
         return;
     }
 
@@ -181,15 +180,13 @@ void RepositoryManager::writeUpdateFile(const QString &fileName)
 {
     QFile file(fileName);
     if (!file.open(QIODevice::ReadWrite | QIODevice::Truncate)) {
-        QMessageBox::critical(nullptr, QLatin1String("Error"),
-                              QString::fromLatin1("Cannot open file \"%1\" for writing: %2").arg(
-                                  QDir::toNativeSeparators(fileName), file.errorString()));
+        QMessageBox::critical(0, QLatin1String("Error"), QLatin1String("Could not open File for saving"));
         return;
     }
 
     QStringList items;
-    for (QMap<QString, ComponentDescription>::const_iterator it = updateMap.constBegin();
-         it != updateMap.constEnd(); ++it) {
+    for (QMap<QString, ComponentDescription>::const_iterator it = updateMap.begin(); it != updateMap.end();
+        ++it) {
             if (it.value().update)
                 items.append(it.key());
     }

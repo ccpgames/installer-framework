@@ -32,11 +32,10 @@
 #include <component.h>
 #include <errors.h>
 #include <init.h>
-#include <runoncechecker.h>
+#include <kdrunoncechecker.h>
 #include <packagemanagercore.h>
 #include <productkeycheck.h>
 
-#include <QDir>
 #include <QDomDocument>
 
 #include <iostream>
@@ -49,16 +48,13 @@ UpdateChecker::UpdateChecker(int &argc, char *argv[])
 
 int UpdateChecker::check()
 {
-    RunOnceChecker runCheck(QDir::tempPath()
-                            + QLatin1Char('/')
-                            + qApp->applicationName()
-                            + QLatin1String("15021976.lock"));
-    if (runCheck.isRunning(RunOnceChecker::ConditionFlag::Lockfile)) {
+    KDRunOnceChecker runCheck(qApp->applicationDirPath() + QLatin1String("/lockmyApp15021976.lock"));
+    if (runCheck.isRunning(KDRunOnceChecker::ConditionFlag::Lockfile)) {
         // It is possible to install an application and thus the maintenance tool into a
         // directory that requires elevated permission to create a lock file. Since this
         // cannot be done without requesting credentials from the user, we silently ignore
         // the fact that we could not create the lock file and check the running processes.
-        if (runCheck.isRunning(RunOnceChecker::ConditionFlag::ProcessList))
+        if (runCheck.isRunning(KDRunOnceChecker::ConditionFlag::ProcessList))
             throw QInstaller::Error(QLatin1String("An instance is already checking for updates."));
     }
 
@@ -106,7 +102,7 @@ int UpdateChecker::check()
     foreach (QInstaller::Component *component, components) {
         QDomElement update = doc.createElement(QLatin1String("update"));
         update.setAttribute(QLatin1String("name"), component->value(QInstaller::scDisplayName));
-        update.setAttribute(QLatin1String("version"), component->value(QInstaller::scVersion));
+        update.setAttribute(QLatin1String("version"), component->value(QInstaller::scRemoteVersion));
         update.setAttribute(QLatin1String("size"), component->value(QInstaller::scUncompressedSize));
         root.appendChild(update);
     }

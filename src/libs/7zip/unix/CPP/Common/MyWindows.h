@@ -40,17 +40,7 @@ typedef UINT32 DWORD;
 typedef Int64 LONGLONG;
 typedef UInt64 ULONGLONG;
 
-typedef union _LARGE_INTEGER {
-    struct {
-        DWORD LowPart;
-        LONG HighPart;
-    };
-    struct {
-        DWORD LowPart;
-        LONG HighPart;
-    } u;
-    LONGLONG QuadPart;
-} LARGE_INTEGER;
+typedef struct LARGE_INTEGER { LONGLONG QuadPart; }LARGE_INTEGER;
 typedef struct _ULARGE_INTEGER { ULONGLONG QuadPart;} ULARGE_INTEGER;
 
 typedef const CHAR *LPCSTR;
@@ -200,20 +190,12 @@ typedef PROPVARIANT tagVARIANT;
 typedef tagVARIANT VARIANT;
 typedef VARIANT VARIANTARG;
 
-#define MY_EXTERN_C extern "C"
-
 MY_EXTERN_C HRESULT VariantClear(VARIANTARG *prop);
 MY_EXTERN_C HRESULT VariantCopy(VARIANTARG *dest, VARIANTARG *src);
-
-#else
-
-#define MY_EXTERN_C extern
-
 
 #endif
 
 MY_EXTERN_C BSTR SysAllocStringByteLen(LPCSTR psz, UINT len);
-MY_EXTERN_C BSTR SysAllocStringLen(const OLECHAR*,UINT);
 MY_EXTERN_C BSTR SysAllocString(const OLECHAR *sz);
 MY_EXTERN_C void SysFreeString(BSTR bstr);
 MY_EXTERN_C UINT SysStringByteLen(BSTR bstr);

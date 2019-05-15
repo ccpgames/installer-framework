@@ -24,13 +24,13 @@
 
   #endif /* !ENV_MACOSX && !ENV_BEOS */
 
-  #if !defined(ENV_BEOS) && !defined(ANDROID_NDK)
-
+  #if !defined(ENV_BEOS)
     #define ENV_HAVE_GETPASS
 
     #if !defined(sun)
       #define ENV_HAVE_TIMEGM
     #endif
+
 
   #endif
 
@@ -52,8 +52,7 @@
 #define ENV_HAVE_PTHREAD
 #endif
 
-/* ANDROID don't have wcstombs or mbstowcs ? */
-#if defined(ENV_MACOSX) || defined(ANDROID_NDK)
+#if defined(ENV_MACOSX)
 #define LOCALE_IS_UTF8
 #endif
 

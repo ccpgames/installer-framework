@@ -38,12 +38,13 @@ class INSTALLER_EXPORT FakeStopProcessForUpdateOperation : public QObject, publi
     Q_OBJECT
 
 public:
-    explicit FakeStopProcessForUpdateOperation(PackageManagerCore *core);
+    FakeStopProcessForUpdateOperation();
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
+    Operation *clone() const;
 };
 
 }

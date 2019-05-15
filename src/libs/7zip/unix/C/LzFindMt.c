@@ -1,7 +1,5 @@
 /* LzFindMt.c -- multithreaded Match finder for LZ algorithms
-2014-12-29 : Igor Pavlov : Public domain */
-
-#include "Precomp.h"
+2009-09-20 : Igor Pavlov : Public domain */
 
 #include "LzHash.h"
 
@@ -60,7 +58,7 @@ void MtSync_StopWriting(CMtSync *p)
     p->csWasEntered = False;
   }
   Semaphore_Release1(&p->freeSemaphore);
-
+ 
   Event_Wait(&p->wasStopped);
 
   while (myNumBlocks++ != p->numProcessedBlocks)
@@ -99,7 +97,7 @@ void MtSync_Destruct(CMtSync *p)
 
 #define RINOK_THREAD(x) { if ((x) != 0) return SZ_ERROR_THREAD; }
 
-static SRes MtSync_Create2(CMtSync *p, THREAD_FUNC_TYPE startAddress, void *obj, UInt32 numBlocks)
+static SRes MtSync_Create2(CMtSync *p, unsigned (MY_STD_CALL *startAddress)(void *), void *obj, UInt32 numBlocks)
 {
   if (p->wasCreated)
     return SZ_OK;
@@ -110,18 +108,18 @@ static SRes MtSync_Create2(CMtSync *p, THREAD_FUNC_TYPE startAddress, void *obj,
   RINOK_THREAD(AutoResetEvent_CreateNotSignaled(&p->canStart));
   RINOK_THREAD(AutoResetEvent_CreateNotSignaled(&p->wasStarted));
   RINOK_THREAD(AutoResetEvent_CreateNotSignaled(&p->wasStopped));
-
+  
   RINOK_THREAD(Semaphore_Create(&p->freeSemaphore, numBlocks, numBlocks));
   RINOK_THREAD(Semaphore_Create(&p->filledSemaphore, 0, numBlocks));
 
   p->needStart = True;
-
+  
   RINOK_THREAD(Thread_Create(&p->thread, startAddress, obj));
   p->wasCreated = True;
   return SZ_OK;
 }
 
-static SRes MtSync_Create(CMtSync *p, THREAD_FUNC_TYPE startAddress, void *obj, UInt32 numBlocks)
+static SRes MtSync_Create(CMtSync *p, unsigned (MY_STD_CALL *startAddress)(void *), void *obj, UInt32 numBlocks)
 {
   SRes res = MtSync_Create2(p, startAddress, obj, numBlocks);
   if (res != SZ_OK)
@@ -387,7 +385,7 @@ void BtFillBlock(CMatchFinderMt *p, UInt32 globalBlockIndex)
     CriticalSection_Enter(&sync->cs);
     sync->csWasEntered = True;
   }
-
+  
   BtGetMatches(p, p->btBuf + (globalBlockIndex & kMtBtNumBlocksMask) * kMtBtBlockSize);
 
   if (p->pos > kMtMaxValForNormalize - kMtBtBlockSize)
@@ -453,12 +451,13 @@ void MatchFinderMt_Destruct(CMatchFinderMt *p, ISzAlloc *alloc)
 #define kHashBufferSize (kMtHashBlockSize * kMtHashNumBlocks)
 #define kBtBufferSize (kMtBtBlockSize * kMtBtNumBlocks)
 
-static THREAD_FUNC_RET_TYPE THREAD_FUNC_CALL_TYPE HashThreadFunc2(void *p) { HashThreadFunc((CMatchFinderMt *)p);  return 0; }
-static THREAD_FUNC_RET_TYPE THREAD_FUNC_CALL_TYPE BtThreadFunc2(void *p)
+static unsigned MY_STD_CALL HashThreadFunc2(void *p) { HashThreadFunc((CMatchFinderMt *)p);  return 0; }
+static unsigned MY_STD_CALL BtThreadFunc2(void *p)
 {
   Byte allocaDummy[0x180];
-  allocaDummy[0] = 0;
-  allocaDummy[1] = allocaDummy[0];
+  int i = 0;
+  for (i = 0; i < 16; i++)
+    allocaDummy[i] = (Byte)i;
   BtThreadFunc((CMatchFinderMt *)p);
   return 0;
 }
@@ -562,7 +561,7 @@ UInt32 * MixMatches2(CMatchFinderMt *p, UInt32 matchMinPos, UInt32 *distances)
   const Byte *cur = p->pointerToCurPos;
   UInt32 lzPos = p->lzPos;
   MT_HASH2_CALC
-
+      
   curMatch2 = hash[hash2Value];
   hash[hash2Value] = lzPos;
 
@@ -585,7 +584,7 @@ UInt32 * MixMatches3(CMatchFinderMt *p, UInt32 matchMinPos, UInt32 *distances)
 
   curMatch2 = hash[                hash2Value];
   curMatch3 = hash[kFix3HashSize + hash3Value];
-
+  
   hash[                hash2Value] =
   hash[kFix3HashSize + hash3Value] =
     lzPos;
@@ -617,11 +616,11 @@ UInt32 *MixMatches4(CMatchFinderMt *p, UInt32 matchMinPos, UInt32 *distances)
   const Byte *cur = p->pointerToCurPos;
   UInt32 lzPos = p->lzPos;
   MT_HASH4_CALC
-
+      
   curMatch2 = hash[                hash2Value];
   curMatch3 = hash[kFix3HashSize + hash3Value];
   curMatch4 = hash[kFix4HashSize + hash4Value];
-
+  
   hash[                hash2Value] =
   hash[kFix3HashSize + hash3Value] =
   hash[kFix4HashSize + hash4Value] =
