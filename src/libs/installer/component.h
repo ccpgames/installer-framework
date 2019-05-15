@@ -32,6 +32,7 @@
 #include "constants.h"
 #include "component_p.h"
 #include "qinstallerglobal.h"
+#include "packagemanagercore.h"
 
 #include <QtCore/QDir>
 #include <QtCore/QMetaType>
@@ -39,15 +40,9 @@
 #include <QtCore/QUrl>
 
 QT_FORWARD_DECLARE_CLASS(QDebug)
-
-namespace KDUpdater {
-    class Update;
-    struct PackageInfo;
-}
+QT_FORWARD_DECLARE_CLASS(QQmlV4Function)
 
 namespace QInstaller {
-
-class PackageManagerCore;
 
 class INSTALLER_EXPORT Component : public QObject, public ComponentModelHelper
 {
@@ -66,6 +61,7 @@ class INSTALLER_EXPORT Component : public QObject, public ComponentModelHelper
     Q_PROPERTY(bool default READ isDefault)
     Q_PROPERTY(bool installed READ isInstalled)
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled)
+    Q_PROPERTY(bool unstable READ isUnstable)
 
 public:
     explicit Component(PackageManagerCore *core);
@@ -96,7 +92,7 @@ public:
     };
 
     void loadDataFromPackage(const Package &package);
-    void loadDataFromPackage(const LocalPackage &package);
+    void loadDataFromPackage(const KDUpdater::LocalPackage &package);
 
     QHash<QString, QString> variables() const;
     Q_INVOKABLE void setValue(const QString &key, const QString &value);
@@ -133,22 +129,12 @@ public:
     OperationList operations() const;
 
     void addOperation(Operation *operation);
-    Q_INVOKABLE bool addOperation(const QString &operation, const QString &parameter1 = QString(),
-        const QString &parameter2 = QString(), const QString &parameter3 = QString(),
-        const QString &parameter4 = QString(), const QString &parameter5 = QString(),
-        const QString &parameter6 = QString(), const QString &parameter7 = QString(),
-        const QString &parameter8 = QString(), const QString &parameter9 = QString(),
-        const QString &parameter10 = QString());
-    Q_INVOKABLE bool addOperation(const QString &operation, const QStringList &parameters);
+    Q_INVOKABLE bool addOperation(QQmlV4Function *args);
+    bool addOperation(const QString &operation, const QStringList &parameters);
 
     void addElevatedOperation(Operation *operation);
-    Q_INVOKABLE bool addElevatedOperation(const QString &operation,
-        const QString &parameter1 = QString(), const QString &parameter2 = QString(),
-        const QString &parameter3 = QString(), const QString &parameter4 = QString(),
-        const QString &parameter5 = QString(), const QString &parameter6 = QString(),
-        const QString &parameter7 = QString(), const QString &parameter8 = QString(),
-        const QString &parameter9 = QString(), const QString &parameter10 = QString());
-    Q_INVOKABLE bool addElevatedOperation(const QString &operation, const QStringList &parameters);
+    Q_INVOKABLE bool addElevatedOperation(QQmlV4Function *args);
+    bool addElevatedOperation(const QString &operation, const QStringList &parameters);
 
     QStringList downloadableArchives() const;
     Q_INVOKABLE void addDownloadableArchive(const QString &path);
@@ -168,6 +154,7 @@ public:
 
     Q_INVOKABLE void addDependency(const QString &newDependency);
     QStringList dependencies() const;
+    Q_INVOKABLE void addAutoDependOn(const QString &newDependOn);
     QStringList autoDependencies() const;
 
     void languageChanged();
@@ -180,7 +167,7 @@ public:
     Q_INVOKABLE bool isAutoDependOn(const QSet<QString> &componentsToInstall) const;
 
     Q_INVOKABLE void setInstalled();
-    Q_INVOKABLE bool isInstalled() const;
+    Q_INVOKABLE bool isInstalled(const QString version = QString()) const;
     Q_INVOKABLE bool installationRequested() const;
     bool isSelectedForInstallation() const;
 
@@ -195,6 +182,8 @@ public:
 
     Q_INVOKABLE bool componentChangeRequested();
 
+    bool isUnstable() const;
+    void setUnstable(PackageManagerCore::UnstableError error, const QString &errorMessage = QString());
 
     bool isVirtual() const;
     bool isSelected() const;
@@ -225,6 +214,7 @@ private:
         const QString &parameter8 = QString(), const QString &parameter9 = QString(),
         const QString &parameter10 = QString());
     Operation *createOperation(const QString &operationName, const QStringList &parameters);
+    void markComponentUnstable();
 
 private:
     QString validatorCallbackName;

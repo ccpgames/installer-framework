@@ -1,6 +1,6 @@
 /**************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Installer Framework.
@@ -36,7 +36,7 @@
 #include <copydirectoryoperation.h>
 #include <errors.h>
 #include <init.h>
-#include <kdupdaterupdateoperations.h>
+#include <updateoperations.h>
 #include <messageboxhandler.h>
 #include <packagemanagercore.h>
 #include <packagemanagerproxyfactory.h>
@@ -47,18 +47,24 @@
 #include <utils.h>
 #include <globals.h>
 
-#include <kdrunoncechecker.h>
-#include <kdupdaterfiledownloaderfactory.h>
+#include <runoncechecker.h>
+#include <filedownloaderfactory.h>
 
+#include <QDir>
 #include <QDirIterator>
+#include <QFontDatabase>
 #include <QTemporaryFile>
 #include <QTranslator>
 #include <QUuid>
 #include <QLoggingCategory>
 
+#ifdef ENABLE_SQUISH
+#include <qtbuiltinhook.h>
+#endif
+
 InstallerBase::InstallerBase(int &argc, char *argv[])
     : SDKApp<QApplication>(argc, argv)
-    , m_core(0)
+    , m_core(nullptr)
 {
     QInstaller::init(); // register custom operations
 }
@@ -70,14 +76,18 @@ InstallerBase::~InstallerBase()
 
 int InstallerBase::run()
 {
-    KDRunOnceChecker runCheck(qApp->applicationDirPath() + QLatin1String("/lockmyApp1234865.lock"));
-    if (runCheck.isRunning(KDRunOnceChecker::ConditionFlag::Lockfile)) {
-        // It is possible to install an application and thus the maintenance tool into a
-        // directory that requires elevated permission to create a lock file. Since this
-        // cannot be done without requesting credentials from the user, we silently ignore
-        // the fact that we could not create the lock file and check the running processes.
-        if (runCheck.isRunning(KDRunOnceChecker::ConditionFlag::ProcessList)) {
-            QInstaller::MessageBoxHandler::information(0, QLatin1String("AlreadyRunning"),
+    RunOnceChecker runCheck(QDir::tempPath()
+                            + QLatin1Char('/')
+                            + qApp->applicationName()
+                            + QLatin1String("1234865.lock"));
+    if (runCheck.isRunning(RunOnceChecker::ConditionFlag::Lockfile)) {
+        // It is possible that two installers with the same name get executed
+        // concurrently and thus try to access the same lock file. This causes
+        // a warning to be shown (when verbose output is enabled) but let's
+        // just silently ignore the fact that we could not create the lock file
+        // and check the running processes.
+        if (runCheck.isRunning(RunOnceChecker::ConditionFlag::ProcessList)) {
+            QInstaller::MessageBoxHandler::information(nullptr, QLatin1String("AlreadyRunning"),
                 tr("Waiting for %1").arg(qAppName()),
                 tr("Another %1 instance is already running. Wait "
                 "until it finishes, close it, or restart your system.").arg(qAppName()));
@@ -123,7 +133,7 @@ int InstallerBase::run()
 
     qCDebug(QInstaller::lcTranslations) << "Language:" << QLocale().uiLanguages()
         .value(0, QLatin1String("No UI language set")).toUtf8().constData();
-    qDebug() << "Arguments: " << arguments().join(QLatin1String(", ")).toUtf8().constData();
+    qDebug().noquote() << "Arguments:" << arguments().join(QLatin1String(", "));
 
     SDKApp::registerMetaResources(manager.collectionByName("QResources"));
     if (parser.isSet(QLatin1String(CommandLineOptions::StartClient))) {
@@ -158,7 +168,14 @@ int InstallerBase::run()
             + m_core->settings().controlScript();
     }
 
-    if (parser.isSet(QLatin1String(CommandLineOptions::Proxy))) {
+    // From Qt5.8 onwards a separate command line option --proxy is not needed as system
+    // proxy is used by default. If Qt is built with QT_USE_SYSTEM_PROXIES false
+    // then system proxies are not used by default.
+    if ((parser.isSet(QLatin1String(CommandLineOptions::Proxy))
+#if QT_VERSION > 0x050800
+            || QNetworkProxyFactory::usesSystemConfiguration()
+#endif
+            ) && !parser.isSet(QLatin1String(CommandLineOptions::NoProxy))) {
         m_core->settings().setProxyType(QInstaller::Settings::SystemProxy);
         KDUpdater::FileDownloaderFactory::instance().setProxyFactory(m_core->proxyFactory());
     }
@@ -206,19 +223,31 @@ int InstallerBase::run()
         m_core->setTemporaryRepositories(repoList, true);
     }
 
+    if (parser.isSet(QLatin1String(CommandLineOptions::InstallCompressedRepository))) {
+        const QStringList repoList = repositories(parser
+            .value(QLatin1String(CommandLineOptions::InstallCompressedRepository)));
+        if (repoList.isEmpty())
+            throw QInstaller::Error(QLatin1String("Empty repository list for option 'installCompressedRepository'."));
+        foreach (QString repository, repoList) {
+            if (!QFileInfo::exists(repository)) {
+                qDebug() << "The file " << repository << "does not exist.";
+                return EXIT_FAILURE;
+            }
+        }
+        m_core->setTemporaryRepositories(repoList, false, true);
+    }
+
     QInstaller::PackageManagerCore::setNoForceInstallation(parser
         .isSet(QLatin1String(CommandLineOptions::NoForceInstallation)));
     QInstaller::PackageManagerCore::setCreateLocalRepositoryFromBinary(parser
         .isSet(QLatin1String(CommandLineOptions::CreateLocalRepository))
         || m_core->settings().createLocalRepository());
 
-    QHash<QString, QString> params;
     const QStringList positionalArguments = parser.positionalArguments();
     foreach (const QString &argument, positionalArguments) {
         if (argument.contains(QLatin1Char('='))) {
             const QString name = argument.section(QLatin1Char('='), 0, 0);
             const QString value = argument.section(QLatin1Char('='), 1, 1);
-            params.insert(name, value);
             m_core->setValue(name, value);
         }
     }
@@ -237,7 +266,7 @@ int InstallerBase::run()
                     QCoreApplication::instance()->installTranslator(qtTranslator.take());
 
                 QScopedPointer<QTranslator> ifwTranslator(new QTranslator(QCoreApplication::instance()));
-                if (ifwTranslator->load(locale, QString(), QString(), directory))
+                if (ifwTranslator->load(locale, QLatin1String("ifw"), QLatin1String("_"), directory))
                     QCoreApplication::instance()->installTranslator(ifwTranslator.take());
 
                 // To stop loading other translations it's sufficient that
@@ -253,41 +282,76 @@ int InstallerBase::run()
         }
     }
 
-    //create the wizard GUI
-    TabController controller(0);
-    controller.setManager(m_core);
-    controller.setManagerParams(params);
-    controller.setControlScript(controlScript);
-
-    if (m_core->isInstaller())
-        controller.setGui(new InstallerGui(m_core));
-    else
-        controller.setGui(new MaintenanceGui(m_core));
-
-    QInstaller::PackageManagerCore::Status status =
-        QInstaller::PackageManagerCore::Status(controller.init());
-    if (status != QInstaller::PackageManagerCore::Success)
-        return status;
-
-    const int result = QCoreApplication::instance()->exec();
-    if (result != 0)
-        return result;
-
-    if (m_core->finishedWithSuccess())
-        return QInstaller::PackageManagerCore::Success;
-
-    status = m_core->status();
-    switch (status) {
-        case QInstaller::PackageManagerCore::Success:
-            return status;
-
-        case QInstaller::PackageManagerCore::Canceled:
-            return status;
-
-        default:
-            break;
+    {
+        QDirIterator fontIt(QStringLiteral(":/fonts"));
+        while (fontIt.hasNext()) {
+            const QString path = fontIt.next();
+            qCDebug(QInstaller::lcResources) << "Registering custom font" << path;
+            if (QFontDatabase::addApplicationFont(path) == -1)
+                qWarning() << "Failed to register font!";
+        }
     }
-    return QInstaller::PackageManagerCore::Failure;
+
+    //Do not show gui with --silentUpdate, instead update components silently
+    if (parser.isSet(QLatin1String(CommandLineOptions::SilentUpdate))) {
+        if (m_core->isInstaller())
+            throw QInstaller::Error(QLatin1String("Cannot start installer binary as updater."));
+        const ProductKeyCheck *const productKeyCheck = ProductKeyCheck::instance();
+        if (!productKeyCheck->hasValidLicense())
+            throw QInstaller::Error(QLatin1String("Silent update not allowed."));
+        m_core->setUpdater();
+        m_core->updateComponentsSilently();
+    }
+    else {
+        //create the wizard GUI
+        TabController controller(nullptr);
+        controller.setManager(m_core);
+        controller.setControlScript(controlScript);
+        if (m_core->isInstaller())
+            controller.setGui(new InstallerGui(m_core));
+        else
+            controller.setGui(new MaintenanceGui(m_core));
+
+        QInstaller::PackageManagerCore::Status status =
+            QInstaller::PackageManagerCore::Status(controller.init());
+        if (status != QInstaller::PackageManagerCore::Success)
+            return status;
+
+#ifdef ENABLE_SQUISH
+        int squishPort = 11233;
+        if (parser.isSet(QLatin1String(CommandLineOptions::SquishPort))) {
+            squishPort = parser.value(QLatin1String(CommandLineOptions::SquishPort)).toInt();
+        }
+        if (squishPort != 0) {
+            if (Squish::allowAttaching(squishPort))
+                qDebug() << "Attaching to squish port " << squishPort << " succeeded";
+            else
+                qDebug() << "Attaching to squish failed.";
+        } else {
+            qWarning() << "Invalid squish port number: " << squishPort;
+        }
+#endif
+        const int result = QCoreApplication::instance()->exec();
+        if (result != 0)
+            return result;
+
+        if (m_core->finishedWithSuccess())
+            return QInstaller::PackageManagerCore::Success;
+
+        status = m_core->status();
+        switch (status) {
+            case QInstaller::PackageManagerCore::Success:
+                return status;
+
+            case QInstaller::PackageManagerCore::Canceled:
+                return status;
+
+            default:
+                break;
+        }
+        return QInstaller::PackageManagerCore::Failure;
+    }
+    return QInstaller::PackageManagerCore::Success;
 }
 
 
@@ -309,6 +373,6 @@ QStringList InstallerBase::repositories(const QString &list) const
 {
     const QStringList items = list.split(QLatin1Char(','), QString::SkipEmptyParts);
     foreach (const QString &item, items)
-        qDebug() << "Adding custom repository:" << item.toUtf8().constData();
+        qDebug().noquote() << "Adding custom repository:" << item;
     return items;
 }

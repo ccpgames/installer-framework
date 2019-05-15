@@ -28,6 +28,8 @@
 
 #include "binaryformatengine.h"
 
+#include <QRegExp>
+
 namespace {
 
 class StringListIterator : public QAbstractFileEngineIterator
@@ -79,7 +81,7 @@ namespace QInstaller {
 */
 BinaryFormatEngine::BinaryFormatEngine(const QHash<QByteArray, ResourceCollection> &collections,
         const QString &fileName)
-    : m_resource(0)
+    : m_resource(nullptr)
     , m_collections(collections)
 {
     setFileName(fileName);

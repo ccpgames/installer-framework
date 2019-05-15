@@ -28,9 +28,13 @@
 
 #include <component.h>
 #include <errors.h>
+#include <updateoperation.h>
+#include <updateoperationfactory.h>
 #include <packagemanagercore.h>
 #include <packagemanagergui.h>
 #include <scriptengine.h>
+
+#include <../unicodeexecutable/stringdata.h>
 
 #include <QTest>
 #include <QSet>
@@ -151,6 +155,29 @@ signals:
     void emitted();
 };
 
+class EmptyArgOperation : public KDUpdater::UpdateOperation
+{
+public:
+    explicit EmptyArgOperation(QInstaller::PackageManagerCore *core)
+        : KDUpdater::UpdateOperation(core)
+    {
+        setName("EmptyArg");
+    }
+
+    void backup() {}
+    bool performOperation() {
+        return true;
+    }
+    bool undoOperation() {
+        return true;
+    }
+    bool testOperation() {
+        return true;
+    }
+};
+
+
+// -- tst_ScriptEngine
 
 class tst_ScriptEngine : public QObject
 {
@@ -166,8 +193,12 @@ private slots:
 
         m_component->setValue("Default", "Script");
         m_component->setValue(scName, "component.test.name");
+        Component *component = new Component(&m_core);
+        component->setValue(scName, "component.test.addOperation");
+        m_core.appendRootComponent(component);
 
         m_scriptEngine = m_core.componentScriptEngine();
+        m_applicatonDirPath = qApp->applicationDirPath();
     }
 
     void testDefaultScriptEngineValues()
@@ -204,6 +235,8 @@ private slots:
             .hasProperty(QLatin1String("displayName")), true);
         QCOMPARE(global.property(QLatin1String("QDesktopServices"))
             .hasProperty(QLatin1String("storageLocation")), true);
+        QCOMPARE(global.property(QLatin1String("QDesktopServices"))
+                 .hasProperty(QLatin1String("findFiles")), true);
 
         QCOMPARE(global.hasProperty(QLatin1String("buttons")), true);
         QCOMPARE(global.hasProperty(QLatin1String("QInstaller")), true);
@@ -245,9 +278,9 @@ private slots:
         QCOMPARE(context.isError(), false);
 
         // ignore Output from script
-        setExpectedScriptOutput("\"function receive()\"");
+        setExpectedScriptOutput("function receive()");
 
-        QTest::ignoreMessage(QtWarningMsg, ":10: ReferenceError: foo is not defined");
+        QTest::ignoreMessage(QtWarningMsg, ":38: ReferenceError: foo is not defined");
         emiter.produceSignal();
 
         const QJSValue value = m_scriptEngine->evaluate("");
@@ -256,7 +289,7 @@ private slots:
 
     void testScriptPrint()
     {
-        setExpectedScriptOutput("\"test\"");
+        setExpectedScriptOutput("test");
         const QJSValue value = m_scriptEngine->evaluate("print(\"test\");");
         if (value.isError()) {
             QFAIL(qPrintable(QString::fromLatin1("ScriptEngine error:\n %1").arg(
@@ -266,7 +299,7 @@ private slots:
 
     void testExistingInstallerObject()
     {
-        setExpectedScriptOutput("\"object\"");
+        setExpectedScriptOutput("object");
         const QJSValue value = m_scriptEngine->evaluate("print(typeof installer)");
         if (value.isError()) {
             QFAIL(qPrintable(QString::fromLatin1("ScriptEngine error:\n %1").arg(
@@ -280,7 +313,7 @@ private slots:
             "\n"
             "print(component.name);").arg(m_component->name());
 
-        setExpectedScriptOutput("\"component.test.name\"");
+        setExpectedScriptOutput("component.test.name");
         const QJSValue value = m_scriptEngine->evaluate(script);
         if (value.isError()) {
             QFAIL(qPrintable(QString::fromLatin1("ScriptEngine error:\n %1").arg(
@@ -304,7 +337,7 @@ private slots:
                                                  "\n"
                                                  "print(components[0].name);");
 
-      setExpectedScriptOutput("\"component.test.name\"");
+      setExpectedScriptOutput("component.test.name");
       const QJSValue value = m_scriptEngine->evaluate(script);
       if (value.isError()) {
         QFAIL(qPrintable(QString::fromLatin1("ScriptEngine error:\n %1").arg(
@@ -312,32 +345,56 @@ private slots:
       }
     }
 
+    void testFindFiles()
+    {
+        const QString expectedOutput = QString::fromLatin1("Found file %1/tst_scriptengine.moc").arg(m_applicatonDirPath);
+        QByteArray array = expectedOutput.toLatin1();
+        const char *c_str2 = array.data();
+
+        setExpectedScriptOutput(c_str2);
+        const QString script = QString::fromLatin1("var directory = \"C:/Qt/test\";"
+                                                   "\n"
+                                                   "var pattern = \"*.moc\";"
+                                                   "\n"
+                                                   "var fileArray = QDesktopServices.findFiles('%1', pattern)"
+                                                   "\n"
+                                                   "for (i = 0; i < fileArray.length; i++) {"
+                                                   "print(\"Found file \"+fileArray[i]);"
+                                                   "}").arg(m_applicatonDirPath);
+        const QJSValue result = m_scriptEngine->evaluate(script);
+        qDebug()<<result.isArray();
+        qDebug()<<result.isObject();
+        qDebug()<<result.isString();
+        qDebug()<<result.isVariant();
+        QCOMPARE(result.isError(), false);
+    }
+
     void loadSimpleComponentScript()
     {
        try {
             // ignore retranslateUi which is called by loadComponentScript
-            setExpectedScriptOutput("\"Component constructor - OK\"");
-            setExpectedScriptOutput("\"retranslateUi - OK\"");
+            setExpectedScriptOutput("Component constructor - OK");
+            setExpectedScriptOutput("retranslateUi - OK");
             m_component->loadComponentScript(":///data/component1.qs");
 
-            setExpectedScriptOutput("\"retranslateUi - OK\"");
+            setExpectedScriptOutput("retranslateUi - OK");
             m_component->languageChanged();
 
-            setExpectedScriptOutput("\"createOperationsForPath - OK\"");
+            setExpectedScriptOutput("createOperationsForPath - OK");
             m_component->createOperationsForPath(":///data/");
 
-            setExpectedScriptOutput("\"createOperationsForArchive - OK\"");
+            setExpectedScriptOutput("createOperationsForArchive - OK");
             // ignore createOperationsForPath which is called by createOperationsForArchive
-            setExpectedScriptOutput("\"createOperationsForPath - OK\"");
+            setExpectedScriptOutput("createOperationsForPath - OK");
             m_component->createOperationsForArchive("test.7z");
 
-            setExpectedScriptOutput("\"beginInstallation - OK\"");
+            setExpectedScriptOutput("beginInstallation - OK");
             m_component->beginInstallation();
 
-            setExpectedScriptOutput("\"createOperations - OK\"");
+            setExpectedScriptOutput("createOperations - OK");
             m_component->createOperations();
 
-            setExpectedScriptOutput("\"isDefault - OK\"");
+            setExpectedScriptOutput("isDefault - OK");
             bool returnIsDefault = m_component->isDefault();
             QCOMPARE(returnIsDefault, false);
 
@@ -354,23 +411,22 @@ private slots:
         // m_core becomes the owner of testComponent, it will delete it in the destructor
         m_core.appendRootComponent(testComponent);
 
-        const QString debugMesssage(
-            "create Error-Exception: \"Exception while loading the component script '"
-            ":///data/component2.qs'. (ReferenceError: broken is not defined)\"");
         try {
             // ignore Output from script
-            setExpectedScriptOutput("\"script function: Component\"");
-            setExpectedScriptOutput(qPrintable(debugMesssage));
+            setExpectedScriptOutput("script function: Component");
             testComponent->loadComponentScript(":///data/component2.qs");
         } catch (const Error &error) {
-            QVERIFY2(debugMesssage.contains(error.message()), "(ReferenceError: broken is not defined)");
+            const QString debugMessage(
+                QString("create Error-Exception: \"Exception while loading the component script \"%1\": "
+                "ReferenceError: broken is not defined\"").arg(QDir::toNativeSeparators(":///data/component2.qs")));
+            QVERIFY2(debugMessage.contains(error.message()), "(ReferenceError: broken is not defined)");
         }
     }
 
     void loadComponentUserInterfaces()
     {
        try {
-            setExpectedScriptOutput("\"checked: false\"");
+            setExpectedScriptOutput("checked: false");
             m_component->loadUserInterfaces(QDir(":///data"), QStringList() << QLatin1String("form.ui"));
             m_component->loadComponentScript(":///data/userinterface.qs");
         } catch (const Error &error) {
@@ -392,7 +448,7 @@ private slots:
             QTest::ignoreMessage(QtWarningMsg, "Button with type:  \"unknown button\" not found! ");
             testGui.callProtectedDelayedExecuteControlScript(PackageManagerCore::ComponentSelection);
 
-            setExpectedScriptOutput("\"FinishedPageCallback - OK\"");
+            setExpectedScriptOutput("FinishedPageCallback - OK");
             testGui.callProtectedDelayedExecuteControlScript(PackageManagerCore::InstallationFinished);
         } catch (const Error &error) {
             QFAIL(qPrintable(error.message()));
@@ -439,6 +495,56 @@ private slots:
         QCOMPARE(gui.widget()->property("complete").toString(), QString("true"));
     }
 
+    void testInstallerExecuteEncodings_data()
+    {
+        QTest::addColumn<QString>("argumentsToInstallerExecute");
+        QTest::addColumn<QString>("expectedOutput");
+        QTest::addColumn<int>("expectedExitCode");
+
+        QTest::newRow("default_encoding_ascii_output_exit_code_0")
+            << QString::fromLatin1("['ascii', '0']") << QString::fromLatin1(asciiText) << 0;
+        QTest::newRow("default_encoding_ascii_output_exit_code_52")
+            << QString::fromLatin1("['ascii', '52']") << QString::fromLatin1(asciiText) << 52;
+
+        QTest::newRow("latin1_encoding_ascii_output")
+            << QString::fromLatin1("['ascii', '0'], '', 'latin1', 'latin1'") << QString::fromLatin1(asciiText) << 0;
+        QTest::newRow("latin1_encoding_utf8_output")
+            << QString::fromLatin1("['utf8', '0'], '', 'latin1', 'latin1'") << QString::fromLatin1(utf8Text) << 0;
+
+        QTest::newRow("utf8_encoding_ascii_output")
+            << QString::fromLatin1("['ascii', '0'], '', 'utf8', 'utf8'") << QString::fromUtf8(asciiText) << 0;
+        QTest::newRow("utf8_encoding_utf8_output")
+            << QString::fromLatin1("['utf8', '0'], '', 'utf8', 'utf8'") << QString::fromUtf8(utf8Text) << 0;
+    }
+
+    void testInstallerExecuteEncodings()
+    {
+        QString unicodeExecutableName = QLatin1String(BUILDDIR "/../unicodeexecutable/unicodeexecutable");
+#if defined(Q_OS_WIN)
+        unicodeExecutableName += QLatin1String(".exe");
+#endif
+
+        QFileInfo unicodeExecutable(unicodeExecutableName);
+        if (!unicodeExecutable.isExecutable()) {
+            QFAIL(qPrintable(QString::fromLatin1("ScriptEngine error: test program %1 is not executable")
+                                .arg(unicodeExecutable.absoluteFilePath())));
+            return;
+        }
+
+        const QString testProgramPath = unicodeExecutable.absoluteFilePath();
+
+        QFETCH(QString, argumentsToInstallerExecute);
+        QFETCH(QString, expectedOutput);
+        QFETCH(int, expectedExitCode);
+
+        QJSValue result = m_scriptEngine->evaluate(QString::fromLatin1("installer.execute('%1', %2);")
+                                                   .arg(testProgramPath)
+                                                   .arg(argumentsToInstallerExecute));
+        QCOMPARE(result.isArray(), true);
+        QCOMPARE(result.property(0).toString(), expectedOutput);
+        QCOMPARE(result.property(1).toString(), QString::number(expectedExitCode));
+    }
+
     void checkEnteringCalledBeforePageCallback()
     {
         EnteringGui gui(&m_core);
@@ -454,6 +560,47 @@ private slots:
         QCOMPARE(enteringPage->invocationOrder(), expectedOrder);
     }
 
+    void testAddOperation_AddElevatedOperation()
+    {
+#if QT_VERSION < 0x50600
+        QSKIP("Behavior changed from 5.6.0 onwards.");
+#endif
+        using namespace KDUpdater;
+        UpdateOperationFactory &factory = UpdateOperationFactory::instance();
+        factory.registerUpdateOperation<EmptyArgOperation>(QLatin1String("EmptyArg"));
+
+        try {
+            m_core.setPackageManager();
+            Component *component = m_core.componentByName("component.test.addOperation");
+            component->loadComponentScript(":///data/addOperation.qs");
+
+            setExpectedScriptOutput("Component::createOperations()");
+            component->createOperations();
+
+            const OperationList operations = component->operations();
+            QCOMPARE(operations.count(), 8);
+
+            struct {
+                const char* args[3];
+                const char* operator[](int i) const {
+                    return args[i];
+                }
+            } expectedArgs[] = {
+                { "Arg", "Arg2", "" }, { "Arg", "", "Arg3" }, { "", "Arg2", "Arg3" }, { "Arg", "Arg2", "" },
+                { "eArg", "eArg2", "" }, { "eArg", "", "eArg3" }, { "", "eArg2", "eArg3" }, { "eArg", "eArg2", "" }
+            };
+
+            for (int i = 0; i < operations.count(); ++i) {
+                const QStringList arguments = operations[i]->arguments();
+                QCOMPARE(arguments.count(), 3);
+                for (int j = 0; j < 3; ++j)
+                    QCOMPARE(arguments[j], QString(expectedArgs[i][j]));
+            }
+        } catch (const QInstaller::Error &error) {
+            QFAIL(qPrintable(error.message()));
+        }
+    }
+
 private:
     void setExpectedScriptOutput(const char *message)
     {
@@ -465,6 +612,7 @@ private:
     PackageManagerCore m_core;
     Component *m_component;
     ScriptEngine *m_scriptEngine;
+    QString m_applicatonDirPath;
 
 };
 

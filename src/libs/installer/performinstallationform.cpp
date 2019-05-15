@@ -76,18 +76,18 @@ using namespace QInstaller;
 */
 PerformInstallationForm::PerformInstallationForm(QObject *parent)
     : QObject(parent)
-    , m_progressBar(0)
-    , m_progressLabel(0)
-    , m_detailsButton(0)
-    , m_detailsBrowser(0)
-    , m_updateTimer(0)
+    , m_progressBar(nullptr)
+    , m_progressLabel(nullptr)
+    , m_detailsButton(nullptr)
+    , m_detailsBrowser(nullptr)
+    , m_updateTimer(nullptr)
 {
 #ifdef Q_OS_WIN
     if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7) {
         m_taskButton = new QWinTaskbarButton(this);
         m_taskButton->progress()->setVisible(true);
     } else {
-        m_taskButton = 0;
+        m_taskButton = nullptr;
     }
 #endif
 }
@@ -117,13 +117,13 @@ void PerformInstallationForm::setupUi(QWidget *widget)
     m_downloadStatus->setObjectName(QLatin1String("DownloadStatus"));
     m_downloadStatus->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Minimum);
     topLayout->addWidget(m_downloadStatus);
-    connect(ProgressCoordinator::instance(), SIGNAL(downloadStatusChanged(QString)), this,
-        SLOT(onDownloadStatusChanged(QString)));
+    connect(ProgressCoordinator::instance(), &ProgressCoordinator::downloadStatusChanged, this,
+        &PerformInstallationForm::onDownloadStatusChanged);
 
     m_detailsButton = new QPushButton(tr("&Show Details"), widget);
     m_detailsButton->setObjectName(QLatin1String("DetailsButton"));
     m_detailsButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-    connect(m_detailsButton, SIGNAL(clicked()), this, SLOT(toggleDetails()));
+    connect(m_detailsButton, &QAbstractButton::clicked, this, &PerformInstallationForm::toggleDetails);
     topLayout->addWidget(m_detailsButton);
 
     QVBoxLayout *bottomLayout = new QVBoxLayout();
@@ -142,7 +142,8 @@ void PerformInstallationForm::setupUi(QWidget *widget)
     baseLayout->addLayout(bottomLayout);
 
     m_updateTimer = new QTimer(widget);
-    connect(m_updateTimer, SIGNAL(timeout()), this, SLOT(updateProgress())); //updateProgress includes label
+    connect(m_updateTimer, &QTimer::timeout,
+            this, &PerformInstallationForm::updateProgress); //updateProgress includes label
     m_updateTimer->setInterval(30);
 
     m_progressBar->setRange(0, 100);
@@ -176,7 +177,7 @@ void PerformInstallationForm::updateProgress()
     m_progressBar->setValue(progressPercentage);
 #ifdef Q_OS_WIN
     if (m_taskButton) {
-        if (!m_taskButton->window())
+        if (!m_taskButton->window() && QApplication::activeWindow())
             m_taskButton->setWindow(QApplication::activeWindow()->windowHandle());
         m_taskButton->progress()->setValue(progressPercentage);
     }

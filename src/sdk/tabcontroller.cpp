@@ -61,8 +61,8 @@ public:
 TabController::Private::Private()
     : m_init(false)
     , m_networkSettingsChanged(false)
-    , m_gui(0)
-    , m_core(0)
+    , m_gui(nullptr)
+    , m_core(nullptr)
 {
 }
 
@@ -89,7 +89,7 @@ TabController::~TabController()
 void TabController::setGui(QInstaller::PackageManagerGui *gui)
 {
     d->m_gui = gui;
-    connect(d->m_gui, SIGNAL(gotRestarted()), this, SLOT(restartWizard()));
+    connect(d->m_gui, &PackageManagerGui::gotRestarted, this, &TabController::restartWizard);
 }
 
 void TabController::setControlScript(const QString &script)
@@ -100,11 +100,6 @@ void TabController::setControlScript(const QString &script)
 void TabController::setManager(QInstaller::PackageManagerCore *core)
 {
     d->m_core = core;
-}
-
-void TabController::setManagerParams(const QHash<QString, QString> &params)
-{
-    d->m_params = params;
 }
 
 // -- public slots
@@ -119,8 +114,9 @@ int TabController::init()
             qDebug() << "Using control script:" << d->m_controlScript;
         }
 
-        connect(d->m_gui, SIGNAL(currentIdChanged(int)), this, SLOT(onCurrentIdChanged(int)));
-        connect(d->m_gui, SIGNAL(settingsButtonClicked()), this, SLOT(onSettingsButtonClicked()));
+        connect(d->m_gui, &QWizard::currentIdChanged, this, &TabController::onCurrentIdChanged);
+        connect(d->m_gui, &PackageManagerGui::settingsButtonClicked,
+                this, &TabController::onSettingsButtonClicked);
     }
 
     IntroductionPage *page =
@@ -132,7 +128,7 @@ int TabController::init()
     }
 
     d->m_gui->restart();
-    d->m_gui->show();
+    d->m_gui->setVisible(!d->m_gui->isSilent());
 
     onCurrentIdChanged(d->m_gui->currentId());
     return PackageManagerCore::Success;
@@ -142,7 +138,7 @@ int TabController::init()
 
 void TabController::restartWizard()
 {
-    d->m_core->reset(d->m_params);
+    d->m_core->reset();
     if (d->m_networkSettingsChanged) {
         d->m_networkSettingsChanged = false;
 
@@ -163,14 +159,14 @@ void TabController::restartWizard()
     d->m_core->writeMaintenanceTool();
 
     // restart and switch back to intro page
-    QTimer::singleShot(0, this, SLOT(init()));
+    QTimer::singleShot(0, this, &TabController::init);
 }
 
 void TabController::onSettingsButtonClicked()
 {
     SettingsDialog dialog(d->m_core);
-    connect (&dialog, SIGNAL(networkSettingsChanged(QInstaller::Settings)), this,
-        SLOT(onNetworkSettingsChanged(QInstaller::Settings)));
+    connect(&dialog, &SettingsDialog::networkSettingsChanged,
+            this, &TabController::onNetworkSettingsChanged);
     dialog.exec();
 
     if (d->m_networkSettingsChanged) {

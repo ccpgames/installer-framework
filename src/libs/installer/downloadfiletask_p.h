@@ -36,6 +36,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTimer>
 
 #include <memory>
 #include <unordered_map>
@@ -90,7 +91,7 @@ private slots:
     void onDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
     void onAuthenticationRequired(QNetworkReply *reply, QAuthenticator *authenticator);
     void onProxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *authenticator);
-
+    void onTimeout();
 
 private:
     bool testCanceled();
@@ -99,6 +100,7 @@ private:
 private:
     QFutureInterface<FileTaskResult> *m_futureInterface;
 
+    QTimer m_timer;
     int m_finished;
     QNetworkAccessManager m_nam;
     QList<FileTaskItem> m_items;

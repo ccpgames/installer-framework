@@ -59,8 +59,8 @@ ProgressCoordinator::~ProgressCoordinator()
 
 ProgressCoordinator *ProgressCoordinator::instance()
 {
-    static ProgressCoordinator *instance = 0;
-    if (instance == 0)
+    static ProgressCoordinator *instance =nullptr;
+    if (instance == nullptr)
         instance = new ProgressCoordinator(qApp);
     return instance;
 }
@@ -101,7 +101,7 @@ void ProgressCoordinator::registerPartProgress(QObject *sender, const char *sign
 void ProgressCoordinator::partProgressChanged(double fraction)
 {
     if (fraction < 0 || fraction > 1) {
-        qWarning() << "The fraction is outside from possible value:" << QString::number(fraction);
+        qWarning() << "The fraction is outside from possible value:" << fraction;
         return;
     }
 

@@ -33,6 +33,7 @@
 
 #include <QtCore/QEvent>
 #include <QtCore/QMetaType>
+#include <QtCore/QTimer>
 
 #include <QWizard>
 #include <QWizardPage>
@@ -56,7 +57,7 @@ namespace QInstaller {
 class PackageManagerCore;
 class PackageManagerPage;
 class PerformInstallationForm;
-
+class ComponentSelectionPagePrivate;
 
 // -- PackageManagerGui
 
@@ -87,6 +88,11 @@ public:
     void updateButtonLayout();
     static QWizard::WizardStyle getStyle(const QString &name);
 
+    void setSilent(bool silent);
+    bool isSilent() const;
+
+    void setTextItems(QObject *object, const QStringList &items);
+
 Q_SIGNALS:
     void interrupted();
     void languageChanged();
@@ -100,6 +106,7 @@ public Q_SLOTS:
     void rejectWithoutPrompt();
     void showFinishedPage();
     void setModified(bool value);
+    void setMaxSize();
 
 protected Q_SLOTS:
     void wizardPageInsertionRequested(QWidget *widget, QInstaller::PackageManagerCore::WizardPage page);
@@ -218,6 +225,7 @@ public Q_SLOTS:
     void onCoreNetworkSettingsChanged();
     void setMessage(const QString &msg);
     void onProgressChanged(int progress);
+    void setTotalProgress(int totalProgress);
     void setErrorMessage(const QString &error);
 
 Q_SIGNALS:
@@ -303,17 +311,20 @@ public:
     Q_INVOKABLE void selectDefault();
     Q_INVOKABLE void selectComponent(const QString &id);
     Q_INVOKABLE void deselectComponent(const QString &id);
+    Q_INVOKABLE void allowCompressedRepositoryInstall();
+    Q_INVOKABLE bool addVirtualComponentToUninstall(const QString &name);
 
 protected:
     void entering();
+    void leaving();
     void showEvent(QShowEvent *event);
 
 private Q_SLOTS:
     void setModified(bool modified);
 
 private:
-    class Private;
-    Private *d;
+    friend class ComponentSelectionPagePrivate;
+    ComponentSelectionPagePrivate *const d;
 };
 
 
@@ -347,6 +358,7 @@ private:
 private:
     QLineEdit *m_lineEdit;
     QLabel *m_warningLabel;
+    QTimer m_textChangeTimer;
 };
 
 
@@ -387,9 +399,6 @@ public:
 protected:
     void entering();
     void leaving();
-
-private:
-    bool calculateComponents(QString *displayString);
 
 private:
     QLabel *m_msgLabel;

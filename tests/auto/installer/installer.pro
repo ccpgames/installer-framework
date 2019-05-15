@@ -3,11 +3,14 @@ TEMPLATE = subdirs
 SUBDIRS += \
     settings \
     repository \
+    compareversion\
+    componentidentifier \
     componentmodel \
     fakestopprocessforupdateoperation \
     messageboxhandler \
     extractarchiveoperationtest \
     lib7zfacade \
+    unicodeexecutable \
     scriptengine \
     consumeoutputoperationtest \
     mkdiroperationtest \
@@ -17,4 +20,10 @@ SUBDIRS += \
     packagemanagercore \
     settingsoperation \
     task \
-    clientserver
+    clientserver \
+    factory
+
+win32 {
+    SUBDIRS += registerfiletypeoperation
+}
+scriptengine.depends += unicodeexecutable

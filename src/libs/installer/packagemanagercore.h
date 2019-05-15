@@ -65,6 +65,14 @@ public:
         Protocol::Mode mode = Protocol::Mode::Production);
     ~PackageManagerCore();
 
+    enum UnstableError {
+        DepencyToUnstable = 0,
+        ShaMismatch,
+        ScriptLoadingFailed,
+        MissingDependency
+    };
+     Q_ENUM(UnstableError)
+
     // status
     enum Status {
         Success = EXIT_SUCCESS,
@@ -122,9 +130,10 @@ public:
 
     PackagesList remotePackages();
     bool fetchRemotePackagesTree();
+    bool fetchCompressedPackagesTree();
 
     bool run();
-    void reset(const QHash<QString, QString> &params);
+    void reset();
 
     void setGuiObject(QObject *gui);
     QObject *guiObject() const;
@@ -133,7 +142,9 @@ public:
     Q_INVOKABLE bool localInstallerBinaryUsed();
 
     Q_INVOKABLE QList<QVariant> execute(const QString &program,
-        const QStringList &arguments = QStringList(), const QString &stdIn = QString()) const;
+        const QStringList &arguments = QStringList(), const QString &stdIn = QString(),
+        const QString &stdInCodec = QLatin1String("latin1"),
+        const QString &stdOutCodec = QLatin1String("latin1")) const;
     Q_INVOKABLE bool executeDetached(const QString &program,
         const QStringList &arguments = QStringList(),
         const QString &workingDirectory = QString()) const;
@@ -174,8 +185,8 @@ public:
     void setTestChecksum(bool test);
 
     Q_INVOKABLE void addUserRepositories(const QStringList &repositories);
-    Q_INVOKABLE void setTemporaryRepositories(const QStringList &repositories, bool replace = false);
-
+    Q_INVOKABLE void setTemporaryRepositories(const QStringList &repositories,
+                                              bool replace = false, bool compressed = false);
     Q_INVOKABLE void autoAcceptMessageBoxes();
     Q_INVOKABLE void autoRejectMessageBoxes();
     Q_INVOKABLE void setMessageBoxAutomaticAnswer(const QString &identifier, int button);
@@ -184,6 +195,7 @@ public:
 
     Q_INVOKABLE bool isFileExtensionRegistered(const QString &extension) const;
     Q_INVOKABLE bool fileExists(const QString &filePath) const;
+    Q_INVOKABLE QString readFile(const QString &filePath, const QString &codecName) const;
 
 public:
     ScriptEngine *componentScriptEngine() const;
@@ -199,6 +211,7 @@ public:
 
     Q_INVOKABLE bool calculateComponentsToInstall() const;
     QList<Component*> orderedComponentsToInstall() const;
+    bool calculateComponents(QString *displayString);
 
     Q_INVOKABLE bool calculateComponentsToUninstall() const;
     QList<Component*> componentsToUninstall() const;
@@ -210,6 +223,7 @@ public:
 
     ComponentModel *defaultComponentModel() const;
     ComponentModel *updaterComponentModel() const;
+    void updateComponentsSilently();
 
     // convenience
     Q_INVOKABLE bool isInstaller() const;
@@ -223,6 +237,8 @@ public:
 
     Q_INVOKABLE void setPackageManager();
     Q_INVOKABLE bool isPackageManager() const;
+
+    bool isMaintainer() const;
 
     bool isVerbose() const;
     void setVerbose(bool on);
@@ -254,6 +270,13 @@ public:
     void setNeedsHardRestart(bool needsHardRestart = true);
     bool finishedWithSuccess() const;
 
+    QStringList filesForDelayedDeletion() const;
+    void addFilesForDelayedDeletion(const QStringList &files);
+
+    static QString checkableName(const QString &name);
+    static void parseNameAndVersion(const QString &requirement, QString *name, QString *version);
+    static QStringList parseNames(const QStringList &requirements);
+
 public Q_SLOTS:
     bool runInstaller();
     bool runUninstaller();
@@ -279,6 +302,7 @@ Q_SIGNALS:
     void finishButtonClicked();
 
     void metaJobProgress(int progress);
+    void metaJobTotalProgress(int progress);
     void metaJobInfoMessage(const QString &message);
 
     void startAllComponentsReset();
@@ -307,6 +331,7 @@ Q_SIGNALS:
     void coreNetworkSettingsChanged();
 
     void guiObjectChanged(QObject *gui);
+    void unstableComponentFound(const QString &type, const QString &errorMessage, const QString &component);
 
 private:
     struct Data {
@@ -326,6 +351,8 @@ private:
                                const QString& versionKey, QHash<QString, bool> &visited);
     ComponentModel *componentModel(PackageManagerCore *core, const QString &objectName) const;
     QList<Component *> componentsMarkedForInstallation() const;
+
+    bool fetchPackagesTree(const PackagesList &packages, const LocalPackagesHash installedPackages);
 
 private:
     PackageManagerCorePrivate *const d;

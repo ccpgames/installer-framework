@@ -41,13 +41,12 @@ class INSTALLER_EXPORT ExtractArchiveOperation : public QObject, public Operatio
     friend class WorkerThread;
 
 public:
-    ExtractArchiveOperation();
+    explicit ExtractArchiveOperation(PackageManagerCore *core);
 
     void backup();
     bool performOperation();
     bool undoOperation();
     bool testOperation();
-    Operation *clone() const;
 
 Q_SIGNALS:
     void outputTextChanged(const QString &progress);
@@ -57,6 +56,7 @@ private Q_SLOTS:
     void fileFinished(const QString &progress);
 
 private:
+    QStringList m_files;
     class Callback;
     class Runnable;
     class Receiver;
