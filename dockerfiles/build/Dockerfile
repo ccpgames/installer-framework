@@ -39,23 +39,23 @@ RUN git checkout v5.11.2
 
 RUN git clone https://github.com/qt/qtbase.git
 RUN cd C:\src\qt5\qtbase `
- && git checkout v5.11.2
+ && git checkout v5.11.3
 
 RUN git clone https://github.com/qt/qtdeclarative.git
 RUN cd C:\src\qt5\qtdeclarative `
- && git checkout v5.11.2
+ && git checkout v5.11.3
 
 RUN git clone https://github.com/qt/qtwinextras.git
 RUN cd C:\src\qt5\qtwinextras `
- && git checkout v5.11.2
+ && git checkout v5.11.3
 
 RUN git clone https://github.com/qt/qttools.git
 RUN cd C:\src\qt5\qttools `
- && git checkout v5.11.2
+ && git checkout v5.11.3
 
 RUN git clone https://github.com/qt/qtmultimedia.git
 RUN cd C:\src\qt5\qtmultimedia `
- && git checkout v5.11.2
+ && git checkout v5.11.3
 
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
  && configure -prefix C:\build\qt5 -release -static -static-runtime -platform win32-msvc -accessibility -no-opengl -no-icu -no-sql-sqlite -no-qml-debug -nomake examples -nomake tests -skip qtactiveqt -skip qtenginio -skip qtlocation -skip qtmultimedia -skip qtserialport -skip qtquickcontrols2 -skip qtquickcontrols -skip qtscript -skip qtsensors -skip qtwebengine -skip qtwebsockets -skip qtxmlpatterns -skip qt3d
