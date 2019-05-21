@@ -29,7 +29,12 @@ RUN C:\TEMP\vs_buildtools.exe --quiet --wait --norestart --nocache `
     --add Microsoft.Component.ClickOnce.MSBuild `
  || IF "%ERRORLEVEL%"=="3010" EXIT 0
 
-RUN git clone https://github.com/qt/qt5.git
+# Implement direct download instead of git sync to reduce overhead
+SHELL ["powershell", "-Command"]
+
+
+
+RUN git clone --progress --verbose https://github.com/qt/qt5.git
 
 WORKDIR C:\src\qt5
 
@@ -37,23 +42,23 @@ RUN git checkout v5.11.3
 
 # git submodules not working in Windows containers. Manually syncing modules instead.
 
-RUN git clone https://github.com/qt/qtbase.git
+RUN git clone --progress --verbose https://github.com/qt/qtbase.git
 RUN cd C:\src\qt5\qtbase `
  && git checkout v5.11.3
 
-RUN git clone https://github.com/qt/qtdeclarative.git
+RUN git clone --progress --verbose https://github.com/qt/qtdeclarative.git
 RUN cd C:\src\qt5\qtdeclarative `
  && git checkout v5.11.3
 
-RUN git clone https://github.com/qt/qtwinextras.git
+RUN git clone --progress --verbose https://github.com/qt/qtwinextras.git
 RUN cd C:\src\qt5\qtwinextras `
  && git checkout v5.11.3
 
-RUN git clone https://github.com/qt/qttools.git
+RUN git clone --progress --verbose https://github.com/qt/qttools.git
 RUN cd C:\src\qt5\qttools `
  && git checkout v5.11.3
 
-RUN git clone https://github.com/qt/qtmultimedia.git
+RUN git clone --progress --verbose https://github.com/qt/qtmultimedia.git
 RUN cd C:\src\qt5\qtmultimedia `
  && git checkout v5.11.3
 
