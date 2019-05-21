@@ -58,20 +58,19 @@ RUN cd C:\src\qt5\qtmultimedia `
  && git checkout v5.11.3
 
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
- && configure -prefix C:\build\qt5 -release -static -static-runtime -platform win32-msvc -accessibility -no-opengl -no-icu -no-sql-sqlite -nomake examples -nomake tests -skip qtactiveqt -skip qtenginio -skip qtlocation -skip qtmultimedia -skip qtserialport -skip qtquickcontrols2 -skip qtquickcontrols -skip qtscript -skip qtsensors -skip qtwebengine -skip qtwebsockets -skip qtxmlpatterns -skip qt3d -skip qtmultimedia
+ && configure -opensource -confirm-license -prefix c:\build\qt5 -release -static -static-runtime -platform win32-msvc -accessibility -no-opengl -no-icu -no-sql-sqlite -no-qml-debug -nomake examples -nomake tests -skip qtactiveqt -skip qtenginio -skip qtlocation -skip qtmultimedia -skip qtserialport -skip qtquickcontrols -skip qtscript -skip qtsensors -skip qtwebengine -skip qtwebsockets -skip qtxmlpatterns -skip qt3d
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
  && jom `
  && jom install
 
 # Get the installer-framework source
 COPY . c:\src\ifw
+WORKDIR c:\src\ifw
 
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
- && C:\build\Qt5\bin\qmake.exe -r `
- && nmake `
- && nmake install
-
-
+ && C:\build\qt5\bin\qmake.exe -r `
+ && jom `
+ && jom install
 
 FROM microsoft/windowsservercore:1803 AS runner
 
