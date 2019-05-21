@@ -29,16 +29,16 @@ RUN C:\TEMP\vs_buildtools.exe --quiet --wait --norestart --nocache `
     --add Microsoft.Component.ClickOnce.MSBuild `
  || IF "%ERRORLEVEL%"=="3010" EXIT 0
 
-# Implement direct download instead of git sync to reduce overhead
-SHELL ["powershell", "-Command"]
-
-
+RUN echo "##teamcity[blockOpened name='qt5-clone' description='Clone qt5 repository']"
 
 RUN git clone --progress --verbose https://github.com/qt/qt5.git
 
 WORKDIR C:\src\qt5
 
 RUN git checkout v5.11.3
+
+RUN echo "##teamcity[blockClosed name='qt5-clone']" `
+ && echo "##teamcity[blockOpened name='qt5-modules-clone' description='Clone qt5 module repositories']"
 
 # git submodules not working in Windows containers. Manually syncing modules instead.
 
@@ -62,11 +62,17 @@ RUN git clone --progress --verbose https://github.com/qt/qtmultimedia.git
 RUN cd C:\src\qt5\qtmultimedia `
  && git checkout v5.11.3
 
+RUN echo "##teamcity[blockClosed name='qt5-modules-clone']" `
+ && echo "##teamcity[blockOpened name='qt5-build' description='Build Qt5']"
+
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
  && configure -opensource -confirm-license -prefix c:\build\qt5 -release -static -static-runtime -platform win32-msvc -accessibility -no-opengl -no-icu -no-sql-sqlite -no-qml-debug -nomake examples -nomake tests -skip qtactiveqt -skip qtenginio -skip qtlocation -skip qtmultimedia -skip qtserialport -skip qtquickcontrols -skip qtscript -skip qtsensors -skip qtwebengine -skip qtwebsockets -skip qtxmlpatterns -skip qt3d
 RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
  && jom `
  && jom install
+
+RUN echo "##teamcity[blockClosed name='qt5-build']" `
+ && echo "##teamcity[blockOpened name='qt5-ifw-build' description='Build Qt5 Installer Framework']"
 
 # Get the installer-framework source
 COPY . c:\src\ifw
@@ -76,6 +82,8 @@ RUN C:\BuildTools\VC\Auxiliary\Build\vcvarsall.bat x86 10.0.17134.0 `
  && C:\build\qt5\bin\qmake.exe -r `
  && jom `
  && jom install
+
+RUN echo "##teamcity[blockClosed name='qt5-ifw-build']"
 
 FROM microsoft/windowsservercore:1803 AS runner
 
