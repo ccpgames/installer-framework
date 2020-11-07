@@ -1,0 +1,15 @@
+QT.network_private.VERSION = 5.12.7
+QT.network_private.name = QtNetwork
+QT.network_private.module =
+QT.network_private.libs = $$QT_MODULE_LIB_BASE
+QT.network_private.includes = $$QT_MODULE_INCLUDE_BASE/QtNetwork/5.12.7 $$QT_MODULE_INCLUDE_BASE/QtNetwork/5.12.7/QtNetwork
+QT.network_private.frameworks =
+QT.network_private.depends = core_private network
+QT.network_private.uses = openssl
+QT.network_private.module_config = v2 staticlib internal_module
+QT.network_private.enabled_features = openssl-linked openssl system-proxies
+QT.network_private.disabled_features = securetransport libproxy linux-netlink
+QMAKE_LIBS_OPENSSL = "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.17763.0\\um\\x86/Ws2_32.lib" "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.17763.0\\um\\x86/Gdi32.lib" "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.17763.0\\um\\x86/Advapi32.lib" "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.17763.0\\um\\x86/Crypt32.lib" "C:\\Program Files (x86)\\Windows Kits\\10\\lib\\10.0.17763.0\\um\\x86/User32.lib"
+QMAKE_LIBS_OPENSSL_DEBUG = $$[QT_INSTALL_PREFIX]\\..\\..\\openssl\\1.1.1g\\lib/libssl.lib $$[QT_INSTALL_PREFIX]\\..\\..\\openssl\\1.1.1g\\lib/libcrypto.lib
+QMAKE_LIBS_OPENSSL_RELEASE = $$[QT_INSTALL_PREFIX]\\..\\..\\openssl\\1.1.1g\\lib/libssl.lib $$[QT_INSTALL_PREFIX]\\..\\..\\openssl\\1.1.1g\\lib/libcrypto.lib
+QMAKE_LIBS_NETWORK = ws2_32.lib
