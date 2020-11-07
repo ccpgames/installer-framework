@@ -88,5 +88,19 @@ doc-build
 .rcc
 .pch
 .metadata
+build
 
 /src/sdk/translations/untranslated.ts
+
+# Build files that we don't care about
+.qmake.stash
+src/libs/7zip/mocinclude.opt
+src/libs/installer/mocinclude.opt
+src/sdk/installerbase.qrc
+src/sdk/mocinclude.opt
+src/sdk/translations/ifw_en.ts
+tools/archivegen/mocinclude.opt
+tools/binarycreator/mocinclude.opt
+tools/devtool/mocinclude.opt
+tools/repocompare/mocinclude.opt
+tools/repogen/mocinclude.opt
