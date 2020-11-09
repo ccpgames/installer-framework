@@ -1,7 +1,7 @@
 @ECHO ON
 
-SET JOM=vendors\jom\1.1.3\jom.exe
-SET QMAKE=vendors\qt\v5.12.7\bin\qmake.exe
+SET JOM=C:\Qt\Tools\QtCreator\bin\jom.exe
+SET QMAKE=C:\Qt_static\v5.12.7\bin\qmake.exe
 SET WIN_SDK=10.0.17763.0
 
 SET TOOLS_PATH=%~1
