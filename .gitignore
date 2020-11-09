@@ -104,6 +104,3 @@ tools/binarycreator/mocinclude.opt
 tools/devtool/mocinclude.opt
 tools/repocompare/mocinclude.opt
 tools/repogen/mocinclude.opt
-
-# Include the entire vendors folder
-!vendors/**/*
