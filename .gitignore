@@ -104,3 +104,9 @@ tools/binarycreator/mocinclude.opt
 tools/devtool/mocinclude.opt
 tools/repocompare/mocinclude.opt
 tools/repogen/mocinclude.opt
+
+# Only include the libs we care about
+vendors/pdm-proto/*/libs/Windows/x64
+vendors/pdm-proto/*/libs/Windows/x32/MD
+vendors/protobuf/*/lib/*
+!vendors/protobuf/*/lib/libprotobuf.lib
